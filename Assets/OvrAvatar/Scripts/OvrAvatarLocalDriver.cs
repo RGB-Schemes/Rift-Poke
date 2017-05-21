@@ -2,8 +2,11 @@
 using System.Collections;
 using System;
 using System.Collections.Generic;
+using Oculus.Avatar;
 
 public class OvrAvatarLocalDriver : OvrAvatarDriver {
+
+    private const float mobileBaseHeadHeight = 1.7f;
 
     float voiceAmplitude = 0.0f;
     ControllerPose GetControllerPose(OVRInput.Controller controller)
@@ -34,17 +37,17 @@ public class OvrAvatarLocalDriver : OvrAvatarDriver {
         };
     }
 
-    void Start()
+    private PoseFrame GetCurrentPose()
     {
-        // Todo: get voice amplitude information from the platform native mic
-    }
+        Vector3 headPos = UnityEngine.VR.InputTracking.GetLocalPosition(UnityEngine.VR.VRNode.CenterEye);
+#if UNITY_ANDROID && !UNITY_EDITOR
+        headPos.y += mobileBaseHeadHeight;
+#endif
 
-    public override bool GetCurrentPose(out PoseFrame pose)
-    {
-        pose = new PoseFrame
+        return new PoseFrame
         {
             voiceAmplitude = voiceAmplitude,
-            headPosition = UnityEngine.VR.InputTracking.GetLocalPosition(UnityEngine.VR.VRNode.CenterEye),
+            headPosition = headPos,
             headRotation = UnityEngine.VR.InputTracking.GetLocalRotation(UnityEngine.VR.VRNode.CenterEye),
             handLeftPosition = OVRInput.GetLocalControllerPosition(OVRInput.Controller.LTouch),
             handLeftRotation = OVRInput.GetLocalControllerRotation(OVRInput.Controller.LTouch),
@@ -53,7 +56,20 @@ public class OvrAvatarLocalDriver : OvrAvatarDriver {
             controllerLeftPose = GetControllerPose(OVRInput.Controller.LTouch),
             controllerRightPose = GetControllerPose(OVRInput.Controller.RTouch),
         };
-        return true;
     }
 
+    public override void UpdateTransforms(IntPtr sdkAvatar)
+    {
+        if (sdkAvatar != IntPtr.Zero)
+        {
+            PoseFrame pose = GetCurrentPose();
+
+            ovrAvatarTransform bodyTransform = OvrAvatar.CreateOvrAvatarTransform(pose.headPosition, pose.headRotation);
+            ovrAvatarHandInputState inputStateLeft = OvrAvatar.CreateInputState(OvrAvatar.CreateOvrAvatarTransform(pose.handLeftPosition, pose.handLeftRotation), pose.controllerLeftPose);
+            ovrAvatarHandInputState inputStateRight = OvrAvatar.CreateInputState(OvrAvatar.CreateOvrAvatarTransform(pose.handRightPosition, pose.handRightRotation), pose.controllerRightPose);
+
+            CAPI.ovrAvatarPose_UpdateBody(sdkAvatar, bodyTransform);
+            CAPI.ovrAvatarPose_UpdateHands(sdkAvatar, inputStateLeft, inputStateRight);
+        }
+    }
 }

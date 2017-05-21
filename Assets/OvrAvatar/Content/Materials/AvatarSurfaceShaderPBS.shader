@@ -19,7 +19,7 @@
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment frag
-			#pragma target 2.0
+			#pragma target 3.0
 			#include "UnityCG.cginc"
 
 			struct v2f {
@@ -68,6 +68,9 @@ void surf (Input IN, inout SurfaceOutputStandard o) {
 	o.Smoothness = surfaceParams.a;
 	o.Alpha = _Alpha;
 }
+
+#pragma only_renderers d3d11 gles3 gles
+
 ENDCG
 	}
 	FallBack "Diffuse"

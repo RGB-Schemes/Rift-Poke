@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System;
+using Oculus.Avatar;
 
 public class OvrAvatarSkinnedMeshRenderComponent : OvrAvatarRenderComponent
 {
@@ -21,15 +22,16 @@ public class OvrAvatarSkinnedMeshRenderComponent : OvrAvatarRenderComponent
         }
     };
 
+    Shader surface;
+    Shader surfaceSelfOccluding;
+    bool previouslyActive = false;
+
     private readonly FingerBone Phalanges = new FingerBone(0.01f, 0.03f);
     private readonly FingerBone Metacarpals = new FingerBone(0.01f, 0.05f);
 
-    SkinnedMeshRenderer mesh;
-    Transform[] bones;
-
     private void CreateCollider(Transform transform)
     {
-        if (!transform.gameObject.GetComponent(typeof(CapsuleCollider)) && 
+        if (!transform.gameObject.GetComponent(typeof(CapsuleCollider)) &&
             !transform.gameObject.GetComponent(typeof(SphereCollider)) &&
             transform.name.Contains("hands"))
         {
@@ -69,12 +71,14 @@ public class OvrAvatarSkinnedMeshRenderComponent : OvrAvatarRenderComponent
         }
     }
 
-    internal void Initialize(ovrAvatarRenderPart_SkinnedMeshRender skinnedMeshRender, int thirdPersonLayer, int firstPersonLayer, int sortOrder)
+    internal void Initialize(ovrAvatarRenderPart_SkinnedMeshRender skinnedMeshRender, Shader surface, Shader surfaceSelfOccluding, int thirdPersonLayer, int firstPersonLayer, int sortOrder)
     {
-        mesh = CreateSkinnedMesh(skinnedMeshRender.meshAssetID, skinnedMeshRender.visibilityMask, false, thirdPersonLayer, firstPersonLayer, sortOrder);
+        this.surfaceSelfOccluding = surfaceSelfOccluding != null ? surfaceSelfOccluding :  Shader.Find("OvrAvatar/AvatarSurfaceShaderSelfOccluding");
+        this.surface = surface != null ? surface : Shader.Find("OvrAvatar/AvatarSurfaceShader");
+        this.mesh = CreateSkinnedMesh(skinnedMeshRender.meshAssetID, skinnedMeshRender.visibilityMask, thirdPersonLayer, firstPersonLayer, sortOrder);
         bones = mesh.bones;
-
-        foreach(Transform bone in bones)
+        UpdateMeshMaterial(skinnedMeshRender.visibilityMask, mesh);
+        foreach (Transform bone in bones)
         {
             if (!bone.name.Contains("ignore"))
             {
@@ -83,9 +87,33 @@ public class OvrAvatarSkinnedMeshRenderComponent : OvrAvatarRenderComponent
         }
     }
 
-    internal void UpdateSkinnedMeshRender(OvrAvatar avatar, ovrAvatarRenderPart_SkinnedMeshRender meshRender)
+    public void UpdateSkinnedMeshRender(OvrAvatarComponent component, OvrAvatar avatar, IntPtr renderPart)
     {
-        UpdateSkinnedMesh(avatar, mesh, bones, meshRender.localTransform, meshRender.visibilityMask, meshRender.skinnedPose);
-        UpdateAvatarMaterial(mesh.sharedMaterial, meshRender.materialState);
+        ovrAvatarVisibilityFlags visibilityMask = CAPI.ovrAvatarSkinnedMeshRender_GetVisibilityMask(renderPart);
+        ovrAvatarTransform localTransform = CAPI.ovrAvatarSkinnedMeshRender_GetTransform(renderPart);
+        UpdateSkinnedMesh(avatar, bones, localTransform, visibilityMask, renderPart);
+
+        UpdateMeshMaterial(visibilityMask, mesh == null ? component.RootMeshComponent : mesh);
+        bool isActive = this.gameObject.activeSelf;
+
+        if( mesh != null )
+        {
+            bool changedMaterial = CAPI.ovrAvatarSkinnedMeshRender_MaterialStateChanged(renderPart);
+            if (changedMaterial || (!previouslyActive && isActive))
+            {
+                ovrAvatarMaterialState materialState = CAPI.ovrAvatarSkinnedMeshRender_GetMaterialState(renderPart);
+                component.UpdateAvatarMaterial(mesh.sharedMaterial, materialState);
+            }
+        }
+        previouslyActive = isActive;
+    }
+
+    private void UpdateMeshMaterial(ovrAvatarVisibilityFlags visibilityMask, SkinnedMeshRenderer rootMesh)
+    {
+        Shader shader = (visibilityMask & ovrAvatarVisibilityFlags.SelfOccluding) != 0 ? surfaceSelfOccluding : surface;
+        if (rootMesh.sharedMaterial == null || rootMesh.sharedMaterial.shader != shader)
+        {
+            rootMesh.sharedMaterial = CreateAvatarMaterial(gameObject.name + "_material", shader);
+        }
     }
 }

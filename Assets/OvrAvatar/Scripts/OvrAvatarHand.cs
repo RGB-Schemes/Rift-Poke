@@ -1,34 +1,32 @@
 ﻿using UnityEngine;
-using System.Collections;
-using System.Collections.Generic;
-using System;
 
-public class OvrAvatarHand : MonoBehaviour, IAvatarPart
+[RequireComponent(typeof(Rigidbody))]
+public class OvrAvatarHand : MonoBehaviour
 {
+    public OvrAvatarDriver AvatarDriver;
     public Hand handScript;
     float alpha = 1.0f;
     Rigidbody rigidBody = null;
+    OVRInput.Controller controller;
 
     void Start()
     {
         rigidBody = GetComponent<Rigidbody>();
-    }
-
-    public void UpdatePose(OvrAvatarDriver.ControllerPose pose)
-    {
-        if (rigidBody != null)
+        if (name.ToLower().Contains("left"))
         {
-            rigidBody.detectCollisions = handScript.mHandState == Hand.State.EMPTY && pose.handTrigger >= 0.75f;
+            controller = OVRInput.Controller.LTouch;
+        }
+        else
+        {
+            controller = OVRInput.Controller.RTouch;
         }
     }
 
-    public void SetAlpha(float alpha)
+    public void Update()
     {
-        this.alpha = alpha;
-    }
-
-    public void OnAssetsLoaded()
-    {
-        SetAlpha(this.alpha);
+        if (rigidBody != null)
+        {
+            rigidBody.detectCollisions = handScript.mHandState == Hand.State.EMPTY && OVRInput.Get(OVRInput.Axis1D.PrimaryHandTrigger, controller) >= 0.75f;
+        }
     }
 }

@@ -32,9 +32,12 @@ public class AvatarLayerPropertyDrawer : PropertyDrawer
 }
 #endif
 
-public interface IAvatarPart {
-    void OnAssetsLoaded();
-}
+public class PacketRecordSettings
+{
+    public bool RecordingFrames = false;
+    public float UpdateRate = 1.0f / 5.0f;  // Lower rate = bigger packets. Try to optimize against fidelity vs Network Overhead.
+    public float AccumulatedTime = 0.0f;
+};
 
 public class OvrAvatar : MonoBehaviour {
 
@@ -52,9 +55,9 @@ public class OvrAvatar : MonoBehaviour {
     public bool ShowFirstPerson = true;
     public bool ShowThirdPerson;
     public ovrAvatarCapabilities Capabilities = ovrAvatarCapabilities.All;
-    
-    const float PacketDurationSeconds = 1 / 45.0f;
-    OvrAvatarPacket currentPacket;
+    public Shader SurfaceShader;
+    public Shader SurfaceShaderSelfOccluding;
+    public Shader SurfaceShaderPBS;
 
     int renderPartCount = 0;
     bool showLeftController;
@@ -62,6 +65,8 @@ public class OvrAvatar : MonoBehaviour {
     List<float[]> voiceUpdates = new List<float[]>();
 
     public UInt64 oculusUserID;
+    public bool CombineMeshes = false;
+
     private IntPtr sdkAvatar = IntPtr.Zero;
     private HashSet<UInt64> assetLoadingIds = new HashSet<UInt64>();
     private Dictionary<string, OvrAvatarComponent> trackedComponents =
@@ -88,6 +93,16 @@ public class OvrAvatar : MonoBehaviour {
         }
     }
 
+    PacketRecordSettings PacketSettings = new PacketRecordSettings();
+
+    void OnDestroy()
+    {
+        if( sdkAvatar != IntPtr.Zero)
+        {
+            CAPI.ovrAvatar_Destroy(sdkAvatar);
+        }
+    }
+
     public EventHandler<PacketEventArgs> PacketRecorded;
 
     public void AssetLoadedCallback(OvrAvatarAsset asset) {
@@ -97,7 +112,10 @@ public class OvrAvatar : MonoBehaviour {
     private void AddAvatarComponent(GameObject componentObject, ovrAvatarComponent component) {
         OvrAvatarComponent ovrComponent = componentObject.AddComponent<OvrAvatarComponent>();
         trackedComponents.Add(component.name, ovrComponent);
-        for (UInt32 renderPartIndex = 0; renderPartIndex < component.renderPartCount; renderPartIndex++) {
+
+        bool combine_meshes = CombineMeshes && componentObject.name == "body";
+        for (UInt32 renderPartIndex = 0; renderPartIndex < component.renderPartCount; renderPartIndex++)
+        {
             GameObject renderPartObject = new GameObject();
             renderPartObject.name = GetRenderPartName(component, renderPartIndex);
             renderPartObject.transform.SetParent(componentObject.transform);
@@ -113,6 +131,7 @@ public class OvrAvatar : MonoBehaviour {
                     ovrRenderPart = AddSkinnedMeshRenderPBSComponent(renderPartObject, CAPI.ovrAvatarRenderPart_GetSkinnedMeshRenderPBS(renderPart));
                     break;
                 case ovrAvatarRenderPartType.ProjectorRender:
+                    combine_meshes = false;
                     ovrRenderPart = AddProjectorRenderComponent(renderPartObject, CAPI.ovrAvatarRenderPart_GetProjectorRender(renderPart));
                     break;
                 default:
@@ -122,19 +141,24 @@ public class OvrAvatar : MonoBehaviour {
             }
             ovrComponent.RenderParts.Add(ovrRenderPart);
         }
+
+        if (combine_meshes)
+        {
+            ovrComponent.StartMeshCombining(component);
+        }
     }
 
     private OvrAvatarSkinnedMeshRenderComponent AddSkinnedMeshRenderComponent(GameObject gameObject, ovrAvatarRenderPart_SkinnedMeshRender skinnedMeshRender)
     {
         OvrAvatarSkinnedMeshRenderComponent skinnedMeshRenderer = gameObject.AddComponent<OvrAvatarSkinnedMeshRenderComponent>();
-        skinnedMeshRenderer.Initialize(skinnedMeshRender, ThirdPersonLayer.layerIndex, FirstPersonLayer.layerIndex, renderPartCount++);
+        skinnedMeshRenderer.Initialize(skinnedMeshRender, SurfaceShader, SurfaceShaderSelfOccluding, ThirdPersonLayer.layerIndex, FirstPersonLayer.layerIndex, renderPartCount++);
         return skinnedMeshRenderer;
     }
 
     private OvrAvatarSkinnedMeshRenderPBSComponent AddSkinnedMeshRenderPBSComponent(GameObject gameObject, ovrAvatarRenderPart_SkinnedMeshRenderPBS skinnedMeshRenderPBS)
     {
         OvrAvatarSkinnedMeshRenderPBSComponent skinnedMeshRenderer = gameObject.AddComponent<OvrAvatarSkinnedMeshRenderPBSComponent>();
-        skinnedMeshRenderer.Initialize(skinnedMeshRenderPBS, ThirdPersonLayer.layerIndex, FirstPersonLayer.layerIndex, renderPartCount++);
+        skinnedMeshRenderer.Initialize(skinnedMeshRenderPBS, SurfaceShaderPBS, ThirdPersonLayer.layerIndex, FirstPersonLayer.layerIndex, renderPartCount++);
         return skinnedMeshRenderer;
     }
 
@@ -148,14 +172,14 @@ public class OvrAvatar : MonoBehaviour {
             {
                 OvrAvatarRenderComponent targetRenderPart = ovrComponent.RenderParts[(int)projectorRender.renderPartIndex];
                 OvrAvatarProjectorRenderComponent projectorComponent = gameObject.AddComponent<OvrAvatarProjectorRenderComponent>();
-                projectorComponent.InitializeProjectorRender(projectorRender, targetRenderPart);
+                projectorComponent.InitializeProjectorRender(projectorRender, SurfaceShader, targetRenderPart);
                 return projectorComponent;
             }
         }
         return null;
     }
 
-    private IntPtr GetRenderPart(ovrAvatarComponent component, UInt32 renderPartIndex)
+    static public IntPtr GetRenderPart(ovrAvatarComponent component, UInt32 renderPartIndex)
     {
         long offset = Marshal.SizeOf(typeof(IntPtr)) * renderPartIndex;
         IntPtr marshalPtr = new IntPtr(component.renderParts.ToInt64() + offset);
@@ -165,37 +189,12 @@ public class OvrAvatar : MonoBehaviour {
     private void UpdateAvatarComponent(ovrAvatarComponent component)
     {
         OvrAvatarComponent ovrComponent;
-        if (!trackedComponents.TryGetValue(component.name, out ovrComponent)) {
-            throw new Exception(
-                string.Format("trackedComponents didn't have {0}", component.name));
-        }
-        ConvertTransform(component.transform, ovrComponent.transform);
-        for (UInt32 renderPartIndex = 0; renderPartIndex < component.renderPartCount; renderPartIndex++)
+        if (!trackedComponents.TryGetValue(component.name, out ovrComponent))
         {
-            if (ovrComponent.RenderParts.Count <= renderPartIndex)
-            {
-                continue;
-            }
-            OvrAvatarRenderComponent renderComponent = ovrComponent.RenderParts[(int)renderPartIndex];
-            IntPtr renderPart = GetRenderPart(component, renderPartIndex);
-            ovrAvatarRenderPartType type = CAPI.ovrAvatarRenderPart_GetType(renderPart);
-            switch (type)
-            {
-                case ovrAvatarRenderPartType.SkinnedMeshRender:
-                    ((OvrAvatarSkinnedMeshRenderComponent)renderComponent).UpdateSkinnedMeshRender(this, CAPI.ovrAvatarRenderPart_GetSkinnedMeshRender(renderPart));
-                    break;
-                case ovrAvatarRenderPartType.SkinnedMeshRenderPBS:
-                    ((OvrAvatarSkinnedMeshRenderPBSComponent)renderComponent).UpdateSkinnedMeshRenderPBS(this, CAPI.ovrAvatarRenderPart_GetSkinnedMeshRenderPBS(renderPart));
-                    break;
-                case ovrAvatarRenderPartType.ProjectorRender:
-                    ((OvrAvatarProjectorRenderComponent)renderComponent).UpdateProjectorRender(CAPI.ovrAvatarRenderPart_GetProjectorRender(renderPart));
-                    break;
-                default:
-                    throw new NotImplementedException(
-                        string.Format("Unsupported render part type: {0}",
-                                      type.ToString()));
-            }
+            throw new Exception(string.Format("trackedComponents didn't have {0}", component.name));
         }
+
+        ovrComponent.UpdateAvatar(component, this);
     }
 
     private static string GetRenderPartName(ovrAvatarComponent component, uint renderPartIndex)
@@ -215,7 +214,7 @@ public class OvrAvatar : MonoBehaviour {
         target.localScale = transform.scale;
     }
 
-    private static ovrAvatarTransform CreateOvrAvatarTransform(Vector3 position, Quaternion orientation)
+    public static ovrAvatarTransform CreateOvrAvatarTransform(Vector3 position, Quaternion orientation)
     {
         return new ovrAvatarTransform {
             position = new Vector3(position.x, position.y, -position.z),
@@ -234,9 +233,9 @@ public class OvrAvatar : MonoBehaviour {
     private void UpdateSDKAvatarUnityState()
     {
         //Iterate through all the render components
-        UInt64 componentCount = CAPI.ovrAvatarComponent_Count(sdkAvatar);
+        UInt32 componentCount = CAPI.ovrAvatarComponent_Count(sdkAvatar);
         HashSet<string> componentsThisRun = new HashSet<string>();
-        for (UInt64 i = 0; i < componentCount; i++) {
+        for (UInt32 i = 0; i < componentCount; i++) {
             IntPtr ptr = CAPI.ovrAvatarComponent_Get_Native(sdkAvatar, i);
             ovrAvatarComponent component = (ovrAvatarComponent)Marshal.PtrToStructure(ptr, typeof(ovrAvatarComponent));
             componentsThisRun.Add(component.name);
@@ -244,52 +243,72 @@ public class OvrAvatar : MonoBehaviour {
             {
                 GameObject componentObject = null;
                 Type specificType = null;
-                if (ptr == CAPI.ovrAvatarPose_GetBaseComponent(sdkAvatar).renderComponent)
+                if ((Capabilities & ovrAvatarCapabilities.Base) != 0)
                 {
-                    specificType = typeof(OvrAvatarBase);
-                    if (Base != null)
+                    ovrAvatarBaseComponent? baseComponent = CAPI.ovrAvatarPose_GetBaseComponent(sdkAvatar);
+                    if (baseComponent.HasValue && ptr == baseComponent.Value.renderComponent)
                     {
-                        componentObject = Base.gameObject;
+                        specificType = typeof(OvrAvatarBase);
+                        if (Base != null)
+                        {
+                            componentObject = Base.gameObject;
+                        }
                     }
                 }
-                else if (ptr == CAPI.ovrAvatarPose_GetBodyComponent(sdkAvatar).renderComponent)
+
+                if (specificType == null && (Capabilities & ovrAvatarCapabilities.Body) != 0)
                 {
-                    specificType = typeof(OvrAvatarBody);
-                    if (Body != null)
+                    ovrAvatarBodyComponent? bodyComponent = CAPI.ovrAvatarPose_GetBodyComponent(sdkAvatar);
+                    if (bodyComponent.HasValue && ptr == bodyComponent.Value.renderComponent)
                     {
-                        componentObject = Body.gameObject;
+                        specificType = typeof(OvrAvatarBody);
+                        if (Body != null)
+                        {
+                            componentObject = Body.gameObject;
+                        }
                     }
                 }
-                else if (ptr == CAPI.ovrAvatarPose_GetLeftControllerComponent(sdkAvatar).renderComponent)
+
+                if (specificType == null && (Capabilities & ovrAvatarCapabilities.Hands) != 0)
                 {
-                    specificType = typeof(OvrAvatarTouchController);
-                    if (ControllerLeft != null)
+                    ovrAvatarControllerComponent? controllerComponent = CAPI.ovrAvatarPose_GetLeftControllerComponent(sdkAvatar);
+                    if (specificType == null && controllerComponent.HasValue && ptr == controllerComponent.Value.renderComponent)
                     {
-                        componentObject = ControllerLeft.gameObject;
+                        specificType = typeof(OvrAvatarTouchController);
+                        if (ControllerLeft != null)
+                        {
+                            componentObject = ControllerLeft.gameObject;
+                        }
                     }
-                }
-                else if (ptr == CAPI.ovrAvatarPose_GetRightControllerComponent(sdkAvatar).renderComponent)
-                {
-                    specificType = typeof(OvrAvatarTouchController);
-                    if (ControllerRight != null)
+
+                    controllerComponent = CAPI.ovrAvatarPose_GetRightControllerComponent(sdkAvatar);
+                    if (specificType == null && controllerComponent.HasValue && ptr == controllerComponent.Value.renderComponent)
                     {
-                        componentObject = ControllerRight.gameObject;
+                        specificType = typeof(OvrAvatarTouchController);
+                        if (ControllerRight != null)
+                        {
+                            componentObject = ControllerRight.gameObject;
+                        }
                     }
-                }
-                else if (ptr == CAPI.ovrAvatarPose_GetLeftHandComponent(sdkAvatar).renderComponent)
-                {
-                    specificType = typeof(OvrAvatarHand);
-                    if (HandLeft != null)
+
+                    ovrAvatarHandComponent? handComponent = CAPI.ovrAvatarPose_GetLeftHandComponent(sdkAvatar);
+                    if (specificType == null && handComponent.HasValue && ptr == handComponent.Value.renderComponent)
                     {
-                        componentObject = HandLeft.gameObject;
+                        specificType = typeof(OvrAvatarHand);
+                        if (HandLeft != null)
+                        {
+                            componentObject = HandLeft.gameObject;
+                        }
                     }
-                }
-                else if (ptr == CAPI.ovrAvatarPose_GetRightHandComponent(sdkAvatar).renderComponent)
-                {
-                    specificType = typeof(OvrAvatarHand);
-                    if (HandRight != null)
+
+                    handComponent = CAPI.ovrAvatarPose_GetRightHandComponent(sdkAvatar);
+                    if (specificType == null && handComponent.HasValue && ptr == handComponent.Value.renderComponent)
                     {
-                        componentObject = HandRight.gameObject;
+                        specificType = typeof(OvrAvatarHand);
+                        if (HandRight != null)
+                        {
+                            componentObject = HandRight.gameObject;
+                        }
                     }
                 }
 
@@ -302,15 +321,7 @@ public class OvrAvatar : MonoBehaviour {
                 }
                 if (componentObject != null)
                 {
-                    AddAvatarComponent(componentObject, component);
-                    if (specificType != null)
-                    {
-                        IAvatarPart part = componentObject.GetComponent(specificType) as IAvatarPart;
-                        if (part != null)
-                        {
-                            part.OnAssetsLoaded();
-                        }
-                    }
+                    AddAvatarComponent(componentObject, component); 
                 }
             }
             UpdateAvatarComponent(component);
@@ -408,7 +419,11 @@ public class OvrAvatar : MonoBehaviour {
         }
     }
 
-    void AvatarSpecificationCallback(IntPtr avatarSpecification) {
+    void AvatarSpecificationCallback(IntPtr avatarSpecification)
+    {
+#if UNITY_ANDROID
+        Capabilities &= ~ovrAvatarCapabilities.BodyTilt;
+#endif
         sdkAvatar = CAPI.ovrAvatar_Create(avatarSpecification, Capabilities);
         ShowLeftController(showLeftController);
         ShowRightController(showRightController);
@@ -426,7 +441,6 @@ public class OvrAvatar : MonoBehaviour {
         }
     }
 
-    // Use this for initialization
     void Start() {
         ShowLeftController(StartWithControllers);
         ShowRightController(StartWithControllers);
@@ -434,66 +448,35 @@ public class OvrAvatar : MonoBehaviour {
             oculusUserID, this.AvatarSpecificationCallback);
     }
 
-	// Update is called once per frame
-	void Update ()
+    void Update()
     {
+        if (sdkAvatar == IntPtr.Zero)
+        {
+            return;
+        }
+
         if (Driver != null)
         {
-            // Get the current pose from the driver
-            OvrAvatarDriver.PoseFrame pose;
-            if (Driver.GetCurrentPose(out pose))
+            Driver.UpdateTransforms(sdkAvatar);
+
+            foreach (float[] voiceUpdate in voiceUpdates)
             {
-                // If we're recording, record the pose
-                if (RecordPackets)
-                {
-                    RecordFrame(Time.deltaTime, pose);
-                }
-
-                // Update the various avatar components with this pose
-                if (ControllerLeft != null)
-                {
-                    ControllerLeft.UpdatePose(pose.controllerLeftPose);
-                }
-                if (ControllerRight != null)
-                {
-                    ControllerRight.UpdatePose(pose.controllerRightPose);
-                }
-                if (HandLeft != null)
-                {
-                    HandLeft.UpdatePose(pose.controllerLeftPose);
-                }
-                if (HandRight != null)
-                {
-                    HandRight.UpdatePose(pose.controllerRightPose);
-                }
-                if (Body != null)
-                {
-                    Body.UpdatePose(pose.voiceAmplitude);
-                }
-
-                if (sdkAvatar != IntPtr.Zero)
-                {
-                    ovrAvatarTransform bodyTransform = CreateOvrAvatarTransform(pose.headPosition, pose.headRotation);
-                    ovrAvatarHandInputState inputStateLeft = CreateInputState(CreateOvrAvatarTransform(pose.handLeftPosition, pose.handLeftRotation), pose.controllerLeftPose);
-                    ovrAvatarHandInputState inputStateRight = CreateInputState(CreateOvrAvatarTransform(pose.handRightPosition, pose.handRightRotation), pose.controllerRightPose);
-
-                    foreach (float[] voiceUpdate in voiceUpdates)
-                    {
-                        CAPI.ovrAvatarPose_UpdateVoiceVisualization(sdkAvatar, voiceUpdate);
-                    }
-                    voiceUpdates.Clear();
-
-                    CAPI.ovrAvatarPose_UpdateBody(sdkAvatar, bodyTransform);
-                    CAPI.ovrAvatarPose_UpdateHands(sdkAvatar, inputStateLeft, inputStateRight);
-                    CAPI.ovrAvatarPose_Finalize(sdkAvatar, Time.deltaTime);
-                }
+                CAPI.ovrAvatarPose_UpdateVoiceVisualization(sdkAvatar, voiceUpdate);
             }
-        }
-        if (sdkAvatar != IntPtr.Zero && assetLoadingIds.Count == 0)
-        {
-            //If all of the assets for this avatar have been loaded, update the avatar
-            UpdateSDKAvatarUnityState();
 
+            voiceUpdates.Clear();
+
+            CAPI.ovrAvatarPose_Finalize(sdkAvatar, Time.deltaTime);
+        }
+
+        if (RecordPackets)
+        {
+            RecordFrame();
+        }
+
+        if (assetLoadingIds.Count == 0)
+        {
+            UpdateSDKAvatarUnityState();
             UpdateCustomPoses();
 
             if (!assetsFinishedLoading)
@@ -504,7 +487,7 @@ public class OvrAvatar : MonoBehaviour {
         }
     }
 
-    private ovrAvatarHandInputState CreateInputState(ovrAvatarTransform transform, OvrAvatarDriver.ControllerPose pose)
+    public static ovrAvatarHandInputState CreateInputState(ovrAvatarTransform transform, OvrAvatarDriver.ControllerPose pose)
     {
         ovrAvatarHandInputState inputState = new ovrAvatarHandInputState();
         inputState.transform = transform;
@@ -547,50 +530,34 @@ public class OvrAvatar : MonoBehaviour {
         voiceUpdates.Add(voiceSamples);
     }
 
-    void RecordFrame(float deltaSeconds, OvrAvatarDriver.PoseFrame frame)
+    void RecordFrame()
     {
-        // If this is our first packet, store the pose as the initial frame
-        if (currentPacket == null)
+        if (sdkAvatar == IntPtr.Zero)
         {
-            currentPacket = new OvrAvatarPacket(frame);
-            deltaSeconds = 0;
+            return;
         }
 
-        float recordedSeconds = 0;
-        while (recordedSeconds < deltaSeconds)
+        if (!PacketSettings.RecordingFrames)
         {
-            float remainingSeconds = deltaSeconds - recordedSeconds;
-            float remainingPacketSeconds = PacketDurationSeconds - currentPacket.Duration;
+            CAPI.ovrAvatarPacket_BeginRecording(sdkAvatar);
+            PacketSettings.AccumulatedTime = 0.0f;
+            PacketSettings.RecordingFrames = true;
+        }
 
-            // If we're not going to fill the packet, just add the frame
-            if (remainingSeconds < remainingPacketSeconds)
+        PacketSettings.AccumulatedTime += Time.deltaTime;
+
+        if (PacketSettings.AccumulatedTime >= PacketSettings.UpdateRate)
+        {
+            PacketSettings.AccumulatedTime = 0.0f;
+            var packet = CAPI.ovrAvatarPacket_EndRecording(sdkAvatar);
+            CAPI.ovrAvatarPacket_BeginRecording(sdkAvatar);
+
+            if (PacketRecorded != null)
             {
-                currentPacket.AddFrame(frame, remainingSeconds);
-                recordedSeconds += remainingSeconds;
+                PacketRecorded(this, new PacketEventArgs(new OvrAvatarPacket { ovrNativePacket = packet }));
             }
 
-            // If we're going to fill the packet, interpolate the pose, send the packet,
-            // and open a new one
-            else
-            {
-                // Interpolate between the packet's last frame and our target pose
-                // to compute a pose at the end of the packet time.
-                OvrAvatarDriver.PoseFrame a = currentPacket.FinalFrame;
-                OvrAvatarDriver.PoseFrame b = frame;
-                float t = remainingPacketSeconds / remainingSeconds;
-                OvrAvatarDriver.PoseFrame intermediatePose = OvrAvatarDriver.PoseFrame.Interpolate(a, b, t);
-                currentPacket.AddFrame(intermediatePose, remainingPacketSeconds);
-                recordedSeconds += remainingPacketSeconds;
-
-                // Broadcast the recorded packet
-                if (PacketRecorded != null)
-                {
-                    PacketRecorded(this, new PacketEventArgs(currentPacket));
-                }
-
-                // Open a new packet
-                currentPacket = new OvrAvatarPacket(intermediatePose);
-            }
+            CAPI.ovrAvatarPacket_Free(packet);
         }
     }
 }
