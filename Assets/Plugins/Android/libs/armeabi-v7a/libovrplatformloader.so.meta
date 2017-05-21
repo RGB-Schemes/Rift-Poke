@@ -1,15 +1,24 @@
 fileFormatVersion: 2
-guid: 487f9517aee114810a3f00c6d6ba6dbe
-timeCreated: 1485561450
+guid: ef1917e20f26f493ca6041f0e33f9982
+timeCreated: 1493255547
 PluginImporter:
   serializedVersion: 1
   iconMap: {}
   executionOrder: {}
   isPreloaded: 0
+  isOverridable: 0
   platformData:
-    Any:
+    Android:
       enabled: 1
+      settings:
+        CPU: ARMv7
+    Any:
+      enabled: 0
       settings: {}
+    Editor:
+      enabled: 0
+      settings:
+        DefaultValueInitialized: true
   userData: 
   assetBundleName: 
   assetBundleVariant: 

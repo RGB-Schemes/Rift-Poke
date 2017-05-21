@@ -5,7 +5,7 @@ namespace Oculus.Platform
 
   using Description = System.ComponentModel.DescriptionAttribute;
 
-  public enum SendPolicy : uint
+  public enum SendPolicy : int
   {
     /// Sends a message using an unreliable data channel (UDP-based). No delivery
     /// or ordering guarantees are provided. Sending will fail unless a connection

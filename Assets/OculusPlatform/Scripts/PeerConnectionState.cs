@@ -5,7 +5,7 @@ namespace Oculus.Platform
 
   using Description = System.ComponentModel.DescriptionAttribute;
 
-  public enum PeerConnectionState : uint
+  public enum PeerConnectionState : int
   {
     [Description("UNKNOWN")]
     Unknown,

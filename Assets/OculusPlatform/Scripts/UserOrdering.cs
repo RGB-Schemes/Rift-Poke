@@ -5,7 +5,7 @@ namespace Oculus.Platform
 
   using Description = System.ComponentModel.DescriptionAttribute;
 
-  public enum UserOrdering : uint
+  public enum UserOrdering : int
   {
     [Description("UNKNOWN")]
     Unknown,

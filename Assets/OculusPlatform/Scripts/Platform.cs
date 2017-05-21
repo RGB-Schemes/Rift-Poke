@@ -28,10 +28,7 @@ namespace Oculus.Platform
       IsPlatformInitialized = true;
     }
 
-    public static void Initialize(string appId = null)
-    {
-      bool forceWindowsPlatform = UnityEngine.Application.platform == RuntimePlatform.WindowsEditor && !PlatformSettings.UseStandalonePlatform;
-
+    private static string getAppID(bool forceWindowsPlatform, string appId = null) {
       if (!UnityEngine.Application.isEditor || forceWindowsPlatform)
       {
         string configAppID = GetAppIDFromConfig(forceWindowsPlatform);
@@ -51,6 +48,63 @@ namespace Oculus.Platform
           }
         }
       }
+      return appId;
+    }
+
+    // Asynchronously Initialize Platform SDK. The result will be put on the message
+    // queue with the message type: ovrMessage_PlatformInitializeAndroidAsynchronous
+    //
+    // While the platform is in an initializing state, it's not fully functional.
+    // [Requests]: will queue up and run once platform is initialized.
+    //    For example: ovr_User_GetLoggedInUser() can be called immediately after
+    //    asynchronous init and once platform is initialized, this request will run
+    // [Synchronous Methods]: will return the default value;
+    //    For example: ovr_GetLoggedInUserID() will return 0 until platform is
+    //    fully initialized
+    public static Request<Models.PlatformInitialize> AsyncInitialize(string appId = null) {
+      bool forceWindowsPlatform = UnityEngine.Application.platform == RuntimePlatform.WindowsEditor && !PlatformSettings.UseStandalonePlatform;
+      appId = getAppID(forceWindowsPlatform, appId);
+
+      Request<Models.PlatformInitialize> request;
+      if (forceWindowsPlatform) {
+        var platform = new WindowsPlatform();
+        request = platform.AsyncInitialize(appId);
+      } else if (UnityEngine.Application.isEditor) {
+        //TODO add async support: T16528410
+        var platform = new StandalonePlatform();
+        platform.InitializeInEditor();
+        request = new Request<Models.PlatformInitialize>(0);
+      } else if (UnityEngine.Application.platform == RuntimePlatform.Android) {
+        var platform = new AndroidPlatform();
+        request = platform.AsyncInitialize(appId);
+      } else if (UnityEngine.Application.platform == RuntimePlatform.WindowsPlayer) {
+        var platform = new WindowsPlatform();
+        request = platform.AsyncInitialize(appId);
+      } else {
+        throw new NotImplementedException("Oculus platform is not implemented on this platform yet.");
+      }
+
+      IsPlatformInitialized = (request != null);
+
+      if (!IsPlatformInitialized)
+      {
+        throw new UnityException("Oculus Platform failed to initialize.");
+      }
+
+      if (LogMessages) {
+        Debug.LogWarning("Oculus.Platform.Core.LogMessages is set to true. This will cause extra heap allocations, and should not be used outside of testing and debugging.");
+      }
+
+      // Create the GameObject that will run the callbacks
+      (new GameObject("Oculus.Platform.CallbackRunner")).AddComponent<CallbackRunner>();
+      return request;
+    }
+
+
+    public static void Initialize(string appId = null)
+    {
+      bool forceWindowsPlatform = UnityEngine.Application.platform == RuntimePlatform.WindowsEditor && !PlatformSettings.UseStandalonePlatform;
+      appId = getAppID(forceWindowsPlatform, appId);
 
       if (forceWindowsPlatform) {
         var platform = new WindowsPlatform();
@@ -95,6 +149,13 @@ namespace Oculus.Platform
     }
   }
 
+  public static class ApplicationLifecycle
+  {
+    public static Models.LaunchDetails GetLaunchDetails() {
+      return new Models.LaunchDetails(CAPI.ovr_ApplicationLifecycle_GetLaunchDetails());
+    }
+  }
+
   public static partial class Rooms
   {
 
@@ -109,7 +170,7 @@ namespace Oculus.Platform
           kvps[i++] = new CAPI.ovrKeyValuePair(item.Key, item.Value);
         }
 
-        return new Request<Models.Room>(CAPI.ovr_Room_UpdateDataStore(roomID, kvps, (uint)kvps.Length));
+        return new Request<Models.Room>(CAPI.ovr_Room_UpdateDataStore(roomID, kvps));
       }
       return null;
     }
@@ -228,7 +289,7 @@ namespace Oculus.Platform
           kvps[i++] = new CAPI.ovrKeyValuePair(item.Key, item.Value);
         }
 
-        return new Request(CAPI.ovr_Matchmaking_ReportResultInsecure(roomID, kvps, (uint)kvps.Length));
+        return new Request(CAPI.ovr_Matchmaking_ReportResultInsecure(roomID, kvps));
       }
 
       return null;
@@ -592,6 +653,10 @@ namespace Oculus.Platform
 
   }
 
+  public static partial class Avatar
+  {
+  }
+
   public static partial class CloudStorage
   {
     /// Deletes the specified save data buffer. Conflicts are handled just like
@@ -880,7 +945,8 @@ namespace Oculus.Platform
       return null;
     }
 
-    /// Pauses the livestreaming session if there is one. Otherwise it no-ops
+    /// Pauses the livestreaming session if there is one. NOTE: this function is
+    /// safe to call if no session is active.
     ///
     public static Request<Models.LivestreamingStatus> PauseStream()
     {
@@ -892,7 +958,8 @@ namespace Oculus.Platform
       return null;
     }
 
-    /// Resumes the livestreaming session if one is running. Otherwise it no-ops.
+    /// Resumes the livestreaming session if there is one. NOTE: this function is
+    /// safe to call if no session is active.
     ///
     public static Request<Models.LivestreamingStatus> ResumeStream()
     {
@@ -928,8 +995,8 @@ namespace Oculus.Platform
     ///
     /// Return a list of matchmaking rooms in the current pool filtered by skill
     /// and ping (if enabled). This also enqueues the user in the matchmaking
-    /// queue. When the user has made a selection, call Matchmaking.JoinRoom() on
-    /// one of the rooms that was returned. If the user stops browsing, call
+    /// queue. When the user has made a selection, call Room.Join2() on one of the
+    /// rooms that was returned. If the user stops browsing, call
     /// Matchmaking.Cancel().
     ///
     /// In addition to the list of rooms, enqueue results are also returned. Call
@@ -1080,9 +1147,9 @@ namespace Oculus.Platform
     ///
     /// Enqueue yourself to await an available matchmaking room. The platform
     /// returns a MessageType.Notification_Matchmaking_MatchFound message when a
-    /// match is found. Call Matchmaking.JoinRoom() on the returned room. The
-    /// response contains useful information to display to the user to set
-    /// expectations for how long it will take to get a match.
+    /// match is found. Call Room.Join2() on the returned room. The response
+    /// contains useful information to display to the user to set expectations for
+    /// how long it will take to get a match.
     ///
     /// If the user stops waiting, call Matchmaking.Cancel().
     /// \param pool The pool to enqueue in.
@@ -1150,10 +1217,7 @@ namespace Oculus.Platform
       return null;
     }
 
-    /// Modes: QUICKMATCH, BROWSE
-    ///
-    /// Joins a room returned by a previous call to Matchmaking.Enqueue() or
-    /// Matchmaking.Browse().
+    /// DEPRECATED. Use ovr_Room_Join2.
     /// \param roomID ID of a room previously returned from MessageType.Notification_Matchmaking_MatchFound or Matchmaking.Browse().
     /// \param subscribeToUpdates If true, sends a message with type MessageType.Notification_Room_RoomUpdate when room data changes, such as when users join or leave.
     ///
@@ -1171,8 +1235,8 @@ namespace Oculus.Platform
     ///
     /// For pools with skill-based matching. See overview documentation above.
     ///
-    /// Call after calling Matchmaking.JoinRoom() when the players are present to
-    /// begin a rated match for which you plan to report the results (using
+    /// Call after calling Room.Join2() when the players are present to begin a
+    /// rated match for which you plan to report the results (using
     /// Matchmaking.ReportResultInsecure()).
     ///
     public static Request StartMatch(UInt64 roomID)

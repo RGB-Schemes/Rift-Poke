@@ -211,6 +211,10 @@ namespace Oculus.Platform
       /// functions at any time to get the current state directly.
       Notification_Voip_SystemVoipState = 0x58D254A5,
 
+
+      Platform_InitializeStandaloneOculus = 0x51F8CE0C,
+      Platform_InitializeAndroidAsynchronous = 0x1AD307B4,
+      Platform_InitializeWindowsAsynchronous = 0x6DA7BA8F,
     };
 
     public MessageType Type { get { return type; } }
@@ -225,6 +229,8 @@ namespace Oculus.Platform
     public virtual PingResult GetPingResult() { return null; }
     public virtual NetworkingPeer GetNetworkingPeer() { return null; }
     public virtual HttpTransferUpdate GetHttpTransferUpdate() { return null; }
+
+    public virtual PlatformInitialize GetPlatformInitialize() { return null; }
 
     public virtual AchievementDefinitionList GetAchievementDefinitions() { return null; }
     public virtual AchievementProgressList GetAchievementProgressList() { return null; }
@@ -254,6 +260,7 @@ namespace Oculus.Platform
     public virtual RoomInviteNotificationList GetRoomInviteNotificationList() { return null; }
     public virtual RoomList GetRoomList() { return null; }
     public virtual string GetString() { return null; }
+    public virtual SystemPermission GetSystemPermission() { return null; }
     public virtual SystemVoipState GetSystemVoipState() { return null; }
     public virtual User GetUser() { return null; }
     public virtual UserAndRoomList GetUserAndRoomList() { return null; }
@@ -493,6 +500,12 @@ namespace Oculus.Platform
 
         case Message.MessageType.Notification_HTTP_Transfer:
           message = new MessageWithHttpTransferUpdate(messageHandle);
+          break;
+
+        case Message.MessageType.Platform_InitializeStandaloneOculus:
+        case Message.MessageType.Platform_InitializeAndroidAsynchronous:
+        case Message.MessageType.Platform_InitializeWindowsAsynchronous:
+          message = new MessageWithPlatformInitialize(messageHandle);
           break;
 
         default:
@@ -872,6 +885,18 @@ namespace Oculus.Platform
       return CAPI.ovr_Message_GetString(c_message);
     }
   }
+  public class MessageWithSystemPermission : Message<SystemPermission>
+  {
+    public MessageWithSystemPermission(IntPtr c_message) : base(c_message) { }
+    public override SystemPermission GetSystemPermission() { return Data; }
+    protected override SystemPermission GetDataFromMessage(IntPtr c_message)
+    {
+      var msg = CAPI.ovr_Message_GetNativeMessage(c_message);
+      var obj = CAPI.ovr_Message_GetSystemPermission(msg);
+      return new SystemPermission(obj);
+    }
+
+  }
   public class MessageWithSystemVoipState : Message<SystemVoipState>
   {
     public MessageWithSystemVoipState(IntPtr c_message) : base(c_message) { }
@@ -1010,6 +1035,18 @@ namespace Oculus.Platform
       var msg = CAPI.ovr_Message_GetNativeMessage(c_message);
       var obj = CAPI.ovr_Message_GetHttpTransferUpdate(msg);
       return new HttpTransferUpdate(obj);
+    }
+  }
+
+  public class MessageWithPlatformInitialize : Message<PlatformInitialize>
+  {
+    public MessageWithPlatformInitialize(IntPtr c_message) : base(c_message) {}
+    public override PlatformInitialize GetPlatformInitialize() { return Data; }
+    protected override PlatformInitialize GetDataFromMessage(IntPtr c_message)
+    {
+      var msg = CAPI.ovr_Message_GetNativeMessage(c_message);
+      var obj = CAPI.ovr_Message_GetPlatformInitialize(msg);
+      return new PlatformInitialize(obj);
     }
   }
 

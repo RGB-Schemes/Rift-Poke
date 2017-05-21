@@ -16,6 +16,7 @@ namespace Oculus.Platform
     public enum MessageTypeInternal : uint { //TODO - rename this to type; it's already in Message class
       Application_ExecuteCoordinatedLaunch = 0x267DB4F4,
       Application_GetInstalledApplications = 0x520F744C,
+      Avatar_UpdateMetaData                = 0x7BCFD98E,
       GraphAPI_Get                         = 0x30FF006E,
       GraphAPI_Post                        = 0x76A5A7C4,
       HTTP_Get                             = 0x6FB63223,
@@ -31,6 +32,8 @@ namespace Oculus.Platform
       Room_CreateOrUpdateAndJoinNamed      = 0x7C8E0A91,
       Room_GetNamedRooms                   = 0x077D6E8C,
       Room_GetSocialRooms                  = 0x61881D76,
+      SystemPermissions_GetStatus          = 0x1D6A2C09,
+      SystemPermissions_LaunchDeeplink     = 0x1A5A8431,
       User_NewEntitledTestUser             = 0x11741F03,
       User_NewTestUser                     = 0x36E84F8C,
       User_NewTestUserFriends              = 0x1ED726C7
@@ -71,6 +74,7 @@ namespace Oculus.Platform
           message = new MessageWithRoomList(messageHandle);
           break;
 
+        case MessageTypeInternal.Avatar_UpdateMetaData:
         case MessageTypeInternal.GraphAPI_Get:
         case MessageTypeInternal.GraphAPI_Post:
         case MessageTypeInternal.HTTP_Get:
@@ -80,6 +84,11 @@ namespace Oculus.Platform
         case MessageTypeInternal.User_NewTestUser:
         case MessageTypeInternal.User_NewTestUserFriends:
           message = new MessageWithString(messageHandle);
+          break;
+
+        case MessageTypeInternal.SystemPermissions_GetStatus:
+        case MessageTypeInternal.SystemPermissions_LaunchDeeplink:
+          message = new MessageWithSystemPermission(messageHandle);
           break;
 
       }
