@@ -132,9 +132,19 @@ public static class OVRExtensions
 		return new Quaternion() { x = q.x, y = q.y, z = q.z, w = q.w };
 	}
 
+	internal static Quaternion FromFlippedZQuatf(this OVRPlugin.Quatf q)
+	{
+		return new Quaternion() { x = -q.x, y = -q.y, z = q.z, w = q.w };
+	}
+
 	internal static OVRPlugin.Quatf ToQuatf(this Quaternion q)
 	{
 		return new OVRPlugin.Quatf() { x = q.x, y = q.y, z = q.z, w = q.w };
+	}
+
+	internal static OVRPlugin.Quatf ToFlippedZQuatf(this Quaternion q)
+	{
+		return new OVRPlugin.Quatf() { x = -q.x, y = -q.y, z = q.z, w = q.w };
 	}
 }
 

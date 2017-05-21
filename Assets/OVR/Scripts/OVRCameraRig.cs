@@ -22,7 +22,6 @@ limitations under the License.
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using VR = UnityEngine.VR;
 
@@ -77,6 +76,13 @@ public class OVRCameraRig : MonoBehaviour
 	/// If true, separate cameras will be used for the left and right eyes.
 	/// </summary>
 	public bool usePerEyeCameras = false;
+
+	/// <summary>
+	/// If true, all tracked anchors are updated in FixedUpdate instead of Update to favor physics fidelity.
+	/// \note: If the fixed update rate doesn't match the rendering framerate (OVRManager.display.appFramerate), the anchors will visibly judder.
+	/// </summary>
+	public bool useFixedUpdateForTracking = false;
+
 	private bool _skipUpdate = false;
 
 	private readonly string trackingSpaceName = "TrackingSpace";
@@ -87,10 +93,6 @@ public class OVRCameraRig : MonoBehaviour
 	private Camera _centerEyeCamera;
 	private Camera _leftEyeCamera;
 	private Camera _rightEyeCamera;
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-    bool correctedTrackingSpace = false;
-#endif
 
 #region Unity Messages
 	private void Awake()
@@ -106,7 +108,16 @@ public class OVRCameraRig : MonoBehaviour
 
 	private void FixedUpdate()
 	{
-		UpdateAnchors();
+		if (useFixedUpdateForTracking)
+			UpdateAnchors();
+	}
+
+	private void Update()
+	{
+		_skipUpdate = false;
+
+		if (!useFixedUpdateForTracking)
+			UpdateAnchors();
 	}
 
 #endregion
@@ -120,11 +131,9 @@ public class OVRCameraRig : MonoBehaviour
 		
 		if (_skipUpdate)
 		{
-			centerEyeAnchor.FromOVRPose(OVRPose.identity);
-			leftEyeAnchor.FromOVRPose(OVRPose.identity);
-			rightEyeAnchor.FromOVRPose(OVRPose.identity);
-
-			_skipUpdate = false;
+			centerEyeAnchor.FromOVRPose(OVRPose.identity, true);
+			leftEyeAnchor.FromOVRPose(OVRPose.identity, true);
+			rightEyeAnchor.FromOVRPose(OVRPose.identity, true);
 
 			return;
 		}

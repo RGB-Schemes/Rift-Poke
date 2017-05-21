@@ -47,7 +47,7 @@ public class Hand : MonoBehaviour {
                     throwObject();
                     mHandState = State.EMPTY;
                 }
-                mOldVelocity = OVRInput.GetLocalControllerAngularVelocity(Controller).eulerAngles;
+                mOldVelocity = OVRInput.GetLocalControllerAngularVelocity(Controller);
                 break;
         }
     }
@@ -82,7 +82,7 @@ public class Hand : MonoBehaviour {
         mHeldObject.velocity = OVRInput.GetLocalControllerVelocity(Controller);
         if (mOldVelocity != null)
         {
-            mHeldObject.angularVelocity = OVRInput.GetLocalControllerAngularVelocity(Controller).eulerAngles * Mathf.Deg2Rad;
+            mHeldObject.angularVelocity = OVRInput.GetLocalControllerAngularVelocity(Controller);
         }
         mHeldObject.maxAngularVelocity = mHeldObject.angularVelocity.magnitude;
     }
