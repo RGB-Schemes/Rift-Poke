@@ -3,7 +3,7 @@ A quick sample for adding collisions to Oculus Avatars! It covers how to handle 
 
 # Version Information
 The following versions of each are used in this project:
-* Unity                     -   2017.3.1f1
+* Unity                     -   2017.4.1f1
 * Oculus Unity Utilities    -   1.25.2
 * Oculus Platform SDK       -   1.25.0
 * Oculus Avatar SDK         -   1.24.0
