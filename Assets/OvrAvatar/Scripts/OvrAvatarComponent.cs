@@ -8,15 +8,15 @@ using System.Threading;
 public class OvrAvatarComponent : MonoBehaviour
 {
 
-    static readonly string[] LayerKeywords = new[] { "LAYERS_0", "LAYERS_1", "LAYERS_2", "LAYERS_3", "LAYERS_4", "LAYERS_5", "LAYERS_6", "LAYERS_7", "LAYERS_8", };
-    static readonly string[] LayerSampleModeParameters = new[] { "_LayerSampleMode0", "_LayerSampleMode1", "_LayerSampleMode2", "_LayerSampleMode3", "_LayerSampleMode4", "_LayerSampleMode5", "_LayerSampleMode6", "_LayerSampleMode7", };
-    static readonly string[] LayerBlendModeParameters = new[] { "_LayerBlendMode0", "_LayerBlendMode1", "_LayerBlendMode2", "_LayerBlendMode3", "_LayerBlendMode4", "_LayerBlendMode5", "_LayerBlendMode6", "_LayerBlendMode7", };
-    static readonly string[] LayerMaskTypeParameters = new[] { "_LayerMaskType0", "_LayerMaskType1", "_LayerMaskType2", "_LayerMaskType3", "_LayerMaskType4", "_LayerMaskType5", "_LayerMaskType6", "_LayerMaskType7", };
-    static readonly string[] LayerColorParameters = new[] { "_LayerColor0", "_LayerColor1", "_LayerColor2", "_LayerColor3", "_LayerColor4", "_LayerColor5", "_LayerColor6", "_LayerColor7", };
-    static readonly string[] LayerSurfaceParameters = new[] { "_LayerSurface0", "_LayerSurface1", "_LayerSurface2", "_LayerSurface3", "_LayerSurface4", "_LayerSurface5", "_LayerSurface6", "_LayerSurface7", };
-    static readonly string[] LayerSampleParametersParameters = new[] { "_LayerSampleParameters0", "_LayerSampleParameters1", "_LayerSampleParameters2", "_LayerSampleParameters3", "_LayerSampleParameters4", "_LayerSampleParameters5", "_LayerSampleParameters6", "_LayerSampleParameters7", };
-    static readonly string[] LayerMaskParametersParameters = new[] { "_LayerMaskParameters0", "_LayerMaskParameters1", "_LayerMaskParameters2", "_LayerMaskParameters3", "_LayerMaskParameters4", "_LayerMaskParameters5", "_LayerMaskParameters6", "_LayerMaskParameters7", };
-    static readonly string[] LayerMaskAxisParameters = new[] { "_LayerMaskAxis0", "_LayerMaskAxis1", "_LayerMaskAxis2", "_LayerMaskAxis3", "_LayerMaskAxis4", "_LayerMaskAxis5", "_LayerMaskAxis6", "_LayerMaskAxis7", };
+    public static readonly string[] LayerKeywords = new[] { "LAYERS_0", "LAYERS_1", "LAYERS_2", "LAYERS_3", "LAYERS_4", "LAYERS_5", "LAYERS_6", "LAYERS_7", "LAYERS_8", };
+    public static readonly string[] LayerSampleModeParameters = new[] { "_LayerSampleMode0", "_LayerSampleMode1", "_LayerSampleMode2", "_LayerSampleMode3", "_LayerSampleMode4", "_LayerSampleMode5", "_LayerSampleMode6", "_LayerSampleMode7", };
+    public static readonly string[] LayerBlendModeParameters = new[] { "_LayerBlendMode0", "_LayerBlendMode1", "_LayerBlendMode2", "_LayerBlendMode3", "_LayerBlendMode4", "_LayerBlendMode5", "_LayerBlendMode6", "_LayerBlendMode7", };
+    public static readonly string[] LayerMaskTypeParameters = new[] { "_LayerMaskType0", "_LayerMaskType1", "_LayerMaskType2", "_LayerMaskType3", "_LayerMaskType4", "_LayerMaskType5", "_LayerMaskType6", "_LayerMaskType7", };
+    public static readonly string[] LayerColorParameters = new[] { "_LayerColor0", "_LayerColor1", "_LayerColor2", "_LayerColor3", "_LayerColor4", "_LayerColor5", "_LayerColor6", "_LayerColor7", };
+    public static readonly string[] LayerSurfaceParameters = new[] { "_LayerSurface0", "_LayerSurface1", "_LayerSurface2", "_LayerSurface3", "_LayerSurface4", "_LayerSurface5", "_LayerSurface6", "_LayerSurface7", };
+    public static readonly string[] LayerSampleParametersParameters = new[] { "_LayerSampleParameters0", "_LayerSampleParameters1", "_LayerSampleParameters2", "_LayerSampleParameters3", "_LayerSampleParameters4", "_LayerSampleParameters5", "_LayerSampleParameters6", "_LayerSampleParameters7", };
+    public static readonly string[] LayerMaskParametersParameters = new[] { "_LayerMaskParameters0", "_LayerMaskParameters1", "_LayerMaskParameters2", "_LayerMaskParameters3", "_LayerMaskParameters4", "_LayerMaskParameters5", "_LayerMaskParameters6", "_LayerMaskParameters7", };
+    public static readonly string[] LayerMaskAxisParameters = new[] { "_LayerMaskAxis0", "_LayerMaskAxis1", "_LayerMaskAxis2", "_LayerMaskAxis3", "_LayerMaskAxis4", "_LayerMaskAxis5", "_LayerMaskAxis6", "_LayerMaskAxis7", };
 
     public SkinnedMeshRenderer RootMeshComponent;
 
@@ -213,6 +213,9 @@ public class OvrAvatarComponent : MonoBehaviour
                 case ovrAvatarRenderPartType.ProjectorRender:
                     ((OvrAvatarProjectorRenderComponent)renderComponent).UpdateProjectorRender(this, CAPI.ovrAvatarRenderPart_GetProjectorRender(renderPart));
                     break;
+                case ovrAvatarRenderPartType.SkinnedMeshRenderPBS_V2:
+                    ((OvrAvatarSkinnedMeshPBSV2RenderComponent)renderComponent).UpdateSkinnedMeshRender(this, avatar, renderPart);
+                    break;
                 default:
                     break;
             }
@@ -303,12 +306,11 @@ public class OvrAvatarComponent : MonoBehaviour
         }
         if (matState.parallaxMapTextureID != 0)
         {
-            mat.EnableKeyword("PARALLAX_ON");
             mat.SetTexture("_ParallaxMap", GetLoadedTexture(matState.parallaxMapTextureID));
             mat.SetTextureScale("_ParallaxMap", new Vector2(matState.parallaxMapScaleOffset.x, matState.parallaxMapScaleOffset.y));
             mat.SetTextureOffset("_ParallaxMap", new Vector2(matState.parallaxMapScaleOffset.z, matState.parallaxMapScaleOffset.w));
         }
-        if (matState.parallaxMapTextureID != 0)
+        if (matState.roughnessMapTextureID != 0)
         {
             mat.EnableKeyword("ROUGHNESS_ON");
             mat.SetTexture("_RoughnessMap", GetLoadedTexture(matState.roughnessMapTextureID));
@@ -331,6 +333,12 @@ public class OvrAvatarComponent : MonoBehaviour
                 mat.SetTextureScale(surfaceProperty, new Vector2(layer.sampleScaleOffset.x, layer.sampleScaleOffset.y));
                 mat.SetTextureOffset(surfaceProperty, new Vector2(layer.sampleScaleOffset.z, layer.sampleScaleOffset.w));
             }
+
+            if (layer.sampleMode == ovrAvatarMaterialLayerSampleMode.Parallax)
+            {
+                mat.EnableKeyword("PARALLAX_ON");
+            }
+
             mat.SetColor(LayerSampleParametersParameters[layerIndex], layer.sampleParameters);
             mat.SetColor(LayerMaskParametersParameters[layerIndex], layer.maskParameters);
             mat.SetColor(LayerMaskAxisParameters[layerIndex], layer.maskAxis);

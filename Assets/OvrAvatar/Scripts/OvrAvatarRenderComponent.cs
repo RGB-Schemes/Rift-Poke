@@ -57,6 +57,9 @@ public class OvrAvatarRenderComponent : MonoBehaviour {
             case ovrAvatarRenderPartType.SkinnedMeshRenderPBS:
                 dirtyJoints = CAPI.ovrAvatarSkinnedMeshRenderPBS_GetDirtyJoints(renderPart);
                 break;
+            case ovrAvatarRenderPartType.SkinnedMeshRenderPBS_V2:
+                dirtyJoints = CAPI.ovrAvatarSkinnedMeshRenderPBSV2_GetDirtyJoints(renderPart);
+                break;
             default:
                 throw new Exception("Unhandled render part type: " + type);
         }
@@ -78,6 +81,9 @@ public class OvrAvatarRenderComponent : MonoBehaviour {
                         break;
                     case ovrAvatarRenderPartType.SkinnedMeshRenderPBS:
                         transform = CAPI.ovrAvatarSkinnedMeshRenderPBS_GetJointTransform(renderPart, i);
+                        break;
+                    case ovrAvatarRenderPartType.SkinnedMeshRenderPBS_V2:
+                        transform = CAPI.ovrAvatarSkinnedMeshRenderPBSV2_GetJointTransform(renderPart, i);
                         break;
                     default:
                         throw new Exception("Unhandled render part type: " + type);

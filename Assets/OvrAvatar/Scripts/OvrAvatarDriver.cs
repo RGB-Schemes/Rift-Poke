@@ -1,8 +1,21 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System;
+using Oculus.Avatar;
 
 public abstract class OvrAvatarDriver : MonoBehaviour {
+
+    public enum PacketMode
+    {
+        SDK,
+        Unity
+    };
+
+
+    public PacketMode Mode;
+    protected PoseFrame CurrentPose;
+    public PoseFrame GetCurrentPose() { return CurrentPose; }
+    public abstract void UpdateTransforms(IntPtr sdkAvatar);
 
     public struct ControllerPose
     {
@@ -57,5 +70,34 @@ public abstract class OvrAvatarDriver : MonoBehaviour {
         }
     };
 
-    public abstract void UpdateTransforms(IntPtr avatar);
+    protected void UpdateTransformsFromPose(IntPtr sdkAvatar)
+    {
+        if (sdkAvatar != IntPtr.Zero)
+        {
+            ovrAvatarTransform bodyTransform = OvrAvatar.CreateOvrAvatarTransform(CurrentPose.headPosition, CurrentPose.headRotation);
+            ovrAvatarHandInputState inputStateLeft = OvrAvatar.CreateInputState(OvrAvatar.CreateOvrAvatarTransform(CurrentPose.handLeftPosition, CurrentPose.handLeftRotation), CurrentPose.controllerLeftPose);
+            ovrAvatarHandInputState inputStateRight = OvrAvatar.CreateInputState(OvrAvatar.CreateOvrAvatarTransform(CurrentPose.handRightPosition, CurrentPose.handRightRotation), CurrentPose.controllerRightPose);
+
+            CAPI.ovrAvatarPose_UpdateBody(sdkAvatar, bodyTransform);
+
+            if (GetIsTrackedRemote())
+            {
+                CAPI.ovrAvatarPose_UpdateSDK3DofHands(sdkAvatar, inputStateLeft, inputStateRight, GetRemoteControllerType());
+            }
+            else
+            {
+                CAPI.ovrAvatarPose_UpdateHands(sdkAvatar, inputStateLeft, inputStateRight);
+            }
+        }
+    }
+
+    public static bool GetIsTrackedRemote()
+    {
+        return OVRInput.IsControllerConnected(OVRInput.Controller.RTrackedRemote) || OVRInput.IsControllerConnected(OVRInput.Controller.LTrackedRemote);
+    }
+
+    private ovrAvatarControllerType GetRemoteControllerType()
+    {
+        return OVRPlugin.productName == "Oculus Go" ? ovrAvatarControllerType.Go : ovrAvatarControllerType.Malibu;
+    }
 }

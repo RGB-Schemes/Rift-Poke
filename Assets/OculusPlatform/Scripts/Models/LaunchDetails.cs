@@ -1,5 +1,7 @@
 // This file was @generated with LibOVRPlatform/codegen/main. Do not modify it!
 
+#pragma warning disable 0618
+
 namespace Oculus.Platform.Models
 {
   using System;
@@ -14,6 +16,9 @@ namespace Oculus.Platform.Models
     public readonly string LaunchSource;
     public readonly LaunchType LaunchType;
     public readonly UInt64 RoomID;
+    // May be null. Check before using.
+    public readonly UserList UsersOptional;
+    [Obsolete("Deprecated in favor of UsersOptional")]
     public readonly UserList Users;
 
 
@@ -23,7 +28,15 @@ namespace Oculus.Platform.Models
       LaunchSource = CAPI.ovr_LaunchDetails_GetLaunchSource(o);
       LaunchType = CAPI.ovr_LaunchDetails_GetLaunchType(o);
       RoomID = CAPI.ovr_LaunchDetails_GetRoomID(o);
-      Users = new UserList(CAPI.ovr_LaunchDetails_GetUsers(o));
+      {
+        var pointer = CAPI.ovr_LaunchDetails_GetUsers(o);
+        Users = new UserList(pointer);
+        if (pointer == IntPtr.Zero) {
+          UsersOptional = null;
+        } else {
+          UsersOptional = Users;
+        }
+      }
     }
   }
 

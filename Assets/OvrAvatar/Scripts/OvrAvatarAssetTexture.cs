@@ -29,6 +29,9 @@ public class OvrAvatarAssetTexture : OvrAvatarAsset {
                 textureData = new IntPtr(textureData.ToInt64() + ASTCHeaderSize);
                 textureDataSize -= ASTCHeaderSize;
                 break;
+            case ovrAvatarTextureFormat.ASTC_RGB_6x6_MIPMAPS:
+                format = TextureFormat.ASTC_RGB_6x6;
+                break;
             default:
                 throw new NotImplementedException(
                     string.Format("Unsupported texture format {0}",

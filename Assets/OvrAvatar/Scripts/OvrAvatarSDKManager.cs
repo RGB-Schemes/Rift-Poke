@@ -90,7 +90,7 @@ public class OvrAvatarSDKManager : MonoBehaviour {
                             assetData = new OvrAvatarAssetTexture(assetID, asset);
                             break;
                         case ovrAvatarAssetType.Material:
-                            assetData = new OvrMaterialWrapper(assetID, asset);
+                            assetData = new OvrAvatarAssetMaterial(assetID, asset);
                             break;
                         default:
                             throw new NotImplementedException(string.Format("Unsupported asset type format {0}", assetType.ToString()));
@@ -148,7 +148,9 @@ public class OvrAvatarSDKManager : MonoBehaviour {
             callbackSet = new HashSet<specificationCallback>();
             specificationCallbacks.Add(userId, callbackSet);
             //Only request the spec if we don't already have one in flight.
-            CAPI.ovrAvatar_RequestAvatarSpecification(userId);
+            IntPtr specRequest = CAPI.ovrAvatarSpecificationRequest_Create(userId);
+            CAPI.ovrAvatar_RequestAvatarSpecificationFromSpecRequest(specRequest);
+            CAPI.ovrAvatarSpecificationRequest_Destroy(specRequest);
         }
         //callbackSet is now in the callbacks dictionary ready to be added to
         callbackSet.Add(callback);

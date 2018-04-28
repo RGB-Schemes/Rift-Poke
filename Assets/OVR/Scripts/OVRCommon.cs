@@ -1,15 +1,15 @@
 /************************************************************************************
 
-Copyright   :   Copyright 2014 Oculus VR, LLC. All Rights reserved.
+Copyright   :   Copyright 2017 Oculus VR, LLC. All Rights reserved.
 
-Licensed under the Oculus VR Rift SDK License Version 3.3 (the "License");
+Licensed under the Oculus VR Rift SDK License Version 3.4.1 (the "License");
 you may not use the Oculus VR Rift SDK except in compliance with the License,
 which is provided at the time of installation or download, or which
 otherwise accompanies this software in either electronic or hard copy form.
 
 You may obtain a copy of the License at
 
-http://www.oculus.com/licenses/LICENSE-3.3
+https://developer.oculus.com/licenses/sdk-3.4.1
 
 Unless required by applicable law or agreed to in writing, the Oculus VR SDK
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,13 +32,42 @@ public static class OVRExtensions
 	/// <summary>
 	/// Converts the given world-space transform to an OVRPose in tracking space.
 	/// </summary>
-	public static OVRPose ToTrackingSpacePose(this Transform transform)
+	public static OVRPose ToTrackingSpacePose(this Transform transform, Camera camera)
 	{
 		OVRPose headPose;
+#if UNITY_2017_2_OR_NEWER
+		headPose.position = UnityEngine.XR.InputTracking.GetLocalPosition(UnityEngine.XR.XRNode.Head);
+		headPose.orientation = UnityEngine.XR.InputTracking.GetLocalRotation(UnityEngine.XR.XRNode.Head);
+#else
 		headPose.position = UnityEngine.VR.InputTracking.GetLocalPosition(UnityEngine.VR.VRNode.Head);
 		headPose.orientation = UnityEngine.VR.InputTracking.GetLocalRotation(UnityEngine.VR.VRNode.Head);
+#endif
 
-		var ret = headPose * transform.ToHeadSpacePose();
+		var ret = headPose * transform.ToHeadSpacePose(camera);
+
+		return ret;
+	}
+
+
+	/// <summary>
+	/// Converts the given pose from tracking-space to world-space.
+	/// </summary>
+	public static OVRPose ToWorldSpacePose(OVRPose trackingSpacePose)
+	{
+		OVRPose headPose;
+#if UNITY_2017_2_OR_NEWER
+		headPose.position = UnityEngine.XR.InputTracking.GetLocalPosition(UnityEngine.XR.XRNode.Head);
+		headPose.orientation = UnityEngine.XR.InputTracking.GetLocalRotation(UnityEngine.XR.XRNode.Head);
+#else
+		headPose.position = UnityEngine.VR.InputTracking.GetLocalPosition(UnityEngine.VR.VRNode.Head);
+		headPose.orientation = UnityEngine.VR.InputTracking.GetLocalRotation(UnityEngine.VR.VRNode.Head);
+#endif
+
+		// Transform from tracking-Space to head-Space
+		OVRPose poseInHeadSpace = headPose.Inverse() * trackingSpacePose;
+
+		// Transform from head space to world space
+		OVRPose ret = Camera.main.transform.ToOVRPose() * poseInHeadSpace;
 
 		return ret;
 	}
@@ -46,9 +75,9 @@ public static class OVRExtensions
 	/// <summary>
 	/// Converts the given world-space transform to an OVRPose in head space.
 	/// </summary>
-	public static OVRPose ToHeadSpacePose(this Transform transform)
+	public static OVRPose ToHeadSpacePose(this Transform transform, Camera camera)
 	{
-		return Camera.current.transform.ToOVRPose().Inverse() * transform.ToOVRPose();
+		return camera.transform.ToOVRPose().Inverse() * transform.ToOVRPose();
 	}
 
 	internal static OVRPose ToOVRPose(this Transform t, bool isLocal = false)

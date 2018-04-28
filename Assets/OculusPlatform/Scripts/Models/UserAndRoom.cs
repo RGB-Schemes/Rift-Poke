@@ -1,5 +1,7 @@
 // This file was @generated with LibOVRPlatform/codegen/main. Do not modify it!
 
+#pragma warning disable 0618
+
 namespace Oculus.Platform.Models
 {
   using System;
@@ -10,13 +12,24 @@ namespace Oculus.Platform.Models
 
   public class UserAndRoom
   {
+    // May be null. Check before using.
+    public readonly Room RoomOptional;
+    [Obsolete("Deprecated in favor of RoomOptional")]
     public readonly Room Room;
     public readonly User User;
 
 
     public UserAndRoom(IntPtr o)
     {
-      Room = new Room(CAPI.ovr_UserAndRoom_GetRoom(o));
+      {
+        var pointer = CAPI.ovr_UserAndRoom_GetRoom(o);
+        Room = new Room(pointer);
+        if (pointer == IntPtr.Zero) {
+          RoomOptional = null;
+        } else {
+          RoomOptional = Room;
+        }
+      }
       User = new User(CAPI.ovr_UserAndRoom_GetUser(o));
     }
   }

@@ -1,15 +1,15 @@
 /************************************************************************************
 
-Copyright   :   Copyright 2014 Oculus VR, LLC. All Rights reserved.
+Copyright   :   Copyright 2017 Oculus VR, LLC. All Rights reserved.
 
-Licensed under the Oculus VR Rift SDK License Version 3.3 (the "License");
+Licensed under the Oculus VR Rift SDK License Version 3.4.1 (the "License");
 you may not use the Oculus VR Rift SDK except in compliance with the License,
 which is provided at the time of installation or download, or which
 otherwise accompanies this software in either electronic or hard copy form.
 
 You may obtain a copy of the License at
 
-http://www.oculus.com/licenses/LICENSE-3.3
+https://developer.oculus.com/licenses/sdk-3.4.1
 
 Unless required by applicable law or agreed to in writing, the Oculus VR SDK
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,7 +23,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using VR = UnityEngine.VR;
 
 /// <summary>
 /// A head-tracked stereoscopic virtual reality camera rig.
@@ -71,64 +70,62 @@ public class OVRCameraRig : MonoBehaviour
 	/// Occurs when the eye pose anchors have been set.
 	/// </summary>
 	public event System.Action<OVRCameraRig> UpdatedAnchors;
-
 	/// <summary>
 	/// If true, separate cameras will be used for the left and right eyes.
 	/// </summary>
 	public bool usePerEyeCameras = false;
-
 	/// <summary>
 	/// If true, all tracked anchors are updated in FixedUpdate instead of Update to favor physics fidelity.
 	/// \note: If the fixed update rate doesn't match the rendering framerate (OVRManager.display.appFramerate), the anchors will visibly judder.
 	/// </summary>
 	public bool useFixedUpdateForTracking = false;
 
-	private bool _skipUpdate = false;
-
-	private readonly string trackingSpaceName = "TrackingSpace";
-	private readonly string trackerAnchorName = "TrackerAnchor";
-	private readonly string eyeAnchorName = "EyeAnchor";
-	private readonly string handAnchorName = "HandAnchor";
-	private readonly string legacyEyeAnchorName = "Camera";
-	private Camera _centerEyeCamera;
-	private Camera _leftEyeCamera;
-	private Camera _rightEyeCamera;
+	protected bool _skipUpdate = false;
+	protected readonly string trackingSpaceName = "TrackingSpace";
+	protected readonly string trackerAnchorName = "TrackerAnchor";
+	protected readonly string leftEyeAnchorName = "LeftEyeAnchor";
+	protected readonly string centerEyeAnchorName = "CenterEyeAnchor";
+	protected readonly string rightEyeAnchorName = "RightEyeAnchor";
+	protected readonly string leftHandAnchorName = "LeftHandAnchor";
+	protected readonly string rightHandAnchorName = "RightHandAnchor";
+	protected Camera _centerEyeCamera;
+	protected Camera _leftEyeCamera;
+	protected Camera _rightEyeCamera;
 
 #region Unity Messages
-	private void Awake()
+	protected virtual void Awake()
 	{
 		_skipUpdate = true;
 		EnsureGameObjectIntegrity();
 	}
 
-	private void Start()
+	protected virtual void Start()
 	{
 		UpdateAnchors();
 	}
 
-	private void FixedUpdate()
+	protected virtual void FixedUpdate()
 	{
 		if (useFixedUpdateForTracking)
 			UpdateAnchors();
 	}
 
-	private void Update()
+	protected virtual void Update()
 	{
 		_skipUpdate = false;
 
 		if (!useFixedUpdateForTracking)
 			UpdateAnchors();
 	}
-
 #endregion
 
-	private void UpdateAnchors()
+	protected virtual void UpdateAnchors()
 	{
 		EnsureGameObjectIntegrity();
 
 		if (!Application.isPlaying)
 			return;
-		
+
 		if (_skipUpdate)
 		{
 			centerEyeAnchor.FromOVRPose(OVRPose.identity, true);
@@ -143,47 +140,64 @@ public class OVRCameraRig : MonoBehaviour
 		OVRPose tracker = OVRManager.tracker.GetPose();
 
 		trackerAnchor.localRotation = tracker.orientation;
-		centerEyeAnchor.localRotation = VR.InputTracking.GetLocalRotation(VR.VRNode.CenterEye);
-        leftEyeAnchor.localRotation = monoscopic ? centerEyeAnchor.localRotation : VR.InputTracking.GetLocalRotation(VR.VRNode.LeftEye);
-		rightEyeAnchor.localRotation = monoscopic ? centerEyeAnchor.localRotation : VR.InputTracking.GetLocalRotation(VR.VRNode.RightEye);
+#if UNITY_2017_2_OR_NEWER
+		centerEyeAnchor.localRotation = UnityEngine.XR.InputTracking.GetLocalRotation(UnityEngine.XR.XRNode.CenterEye);
+		leftEyeAnchor.localRotation = monoscopic ? centerEyeAnchor.localRotation : UnityEngine.XR.InputTracking.GetLocalRotation(UnityEngine.XR.XRNode.LeftEye);
+		rightEyeAnchor.localRotation = monoscopic ? centerEyeAnchor.localRotation : UnityEngine.XR.InputTracking.GetLocalRotation(UnityEngine.XR.XRNode.RightEye);
+#else
+		centerEyeAnchor.localRotation = UnityEngine.VR.InputTracking.GetLocalRotation(UnityEngine.VR.VRNode.CenterEye);
+		leftEyeAnchor.localRotation = monoscopic ? centerEyeAnchor.localRotation : UnityEngine.VR.InputTracking.GetLocalRotation(UnityEngine.VR.VRNode.LeftEye);
+		rightEyeAnchor.localRotation = monoscopic ? centerEyeAnchor.localRotation : UnityEngine.VR.InputTracking.GetLocalRotation(UnityEngine.VR.VRNode.RightEye);
+#endif
 		leftHandAnchor.localRotation = OVRInput.GetLocalControllerRotation(OVRInput.Controller.LTouch);
-        rightHandAnchor.localRotation = OVRInput.GetLocalControllerRotation(OVRInput.Controller.RTouch);
+		rightHandAnchor.localRotation = OVRInput.GetLocalControllerRotation(OVRInput.Controller.RTouch);
 
 		trackerAnchor.localPosition = tracker.position;
-		centerEyeAnchor.localPosition = VR.InputTracking.GetLocalPosition(VR.VRNode.CenterEye);
-		leftEyeAnchor.localPosition = monoscopic ? centerEyeAnchor.localPosition : VR.InputTracking.GetLocalPosition(VR.VRNode.LeftEye);
-		rightEyeAnchor.localPosition = monoscopic ? centerEyeAnchor.localPosition : VR.InputTracking.GetLocalPosition(VR.VRNode.RightEye);
-        leftHandAnchor.localPosition = OVRInput.GetLocalControllerPosition(OVRInput.Controller.LTouch);
-        rightHandAnchor.localPosition = OVRInput.GetLocalControllerPosition(OVRInput.Controller.RTouch);
+#if UNITY_2017_2_OR_NEWER
+		centerEyeAnchor.localPosition = UnityEngine.XR.InputTracking.GetLocalPosition(UnityEngine.XR.XRNode.CenterEye);
+		leftEyeAnchor.localPosition = monoscopic ? centerEyeAnchor.localPosition : UnityEngine.XR.InputTracking.GetLocalPosition(UnityEngine.XR.XRNode.LeftEye);
+		rightEyeAnchor.localPosition = monoscopic ? centerEyeAnchor.localPosition : UnityEngine.XR.InputTracking.GetLocalPosition(UnityEngine.XR.XRNode.RightEye);
+#else
+		centerEyeAnchor.localPosition = UnityEngine.VR.InputTracking.GetLocalPosition(UnityEngine.VR.VRNode.CenterEye);
+		leftEyeAnchor.localPosition = monoscopic ? centerEyeAnchor.localPosition : UnityEngine.VR.InputTracking.GetLocalPosition(UnityEngine.VR.VRNode.LeftEye);
+		rightEyeAnchor.localPosition = monoscopic ? centerEyeAnchor.localPosition : UnityEngine.VR.InputTracking.GetLocalPosition(UnityEngine.VR.VRNode.RightEye);
+#endif
+		leftHandAnchor.localPosition = OVRInput.GetLocalControllerPosition(OVRInput.Controller.LTouch);
+		rightHandAnchor.localPosition = OVRInput.GetLocalControllerPosition(OVRInput.Controller.RTouch);
 
+		RaiseUpdatedAnchorsEvent();
+	}
+
+	protected virtual void RaiseUpdatedAnchorsEvent()
+	{
 		if (UpdatedAnchors != null)
 		{
 			UpdatedAnchors(this);
 		}
 	}
 
-	public void EnsureGameObjectIntegrity()
+	public virtual void EnsureGameObjectIntegrity()
 	{
 		if (trackingSpace == null)
-			trackingSpace = ConfigureRootAnchor(trackingSpaceName);
+			trackingSpace = ConfigureAnchor(null, trackingSpaceName);
 
 		if (leftEyeAnchor == null)
-            leftEyeAnchor = ConfigureEyeAnchor(trackingSpace, VR.VRNode.LeftEye);
+			leftEyeAnchor = ConfigureAnchor(trackingSpace, leftEyeAnchorName);
 
 		if (centerEyeAnchor == null)
-            centerEyeAnchor = ConfigureEyeAnchor(trackingSpace, VR.VRNode.CenterEye);
+			centerEyeAnchor = ConfigureAnchor(trackingSpace, centerEyeAnchorName);
 
 		if (rightEyeAnchor == null)
-            rightEyeAnchor = ConfigureEyeAnchor(trackingSpace, VR.VRNode.RightEye);
+			rightEyeAnchor = ConfigureAnchor(trackingSpace, rightEyeAnchorName);
 
 		if (leftHandAnchor == null)
-            leftHandAnchor = ConfigureHandAnchor(trackingSpace, OVRPlugin.Node.HandLeft);
+			leftHandAnchor = ConfigureAnchor(trackingSpace, leftHandAnchorName);
 
 		if (rightHandAnchor == null)
-            rightHandAnchor = ConfigureHandAnchor(trackingSpace, OVRPlugin.Node.HandRight);
+			rightHandAnchor = ConfigureAnchor(trackingSpace, rightHandAnchorName);
 
 		if (trackerAnchor == null)
-			trackerAnchor = ConfigureTrackerAnchor(trackingSpace);
+			trackerAnchor = ConfigureAnchor(trackingSpace, trackerAnchorName);
 
 		if (_centerEyeCamera == null || _leftEyeCamera == null || _rightEyeCamera == null)
 		{
@@ -201,96 +215,34 @@ public class OVRCameraRig : MonoBehaviour
 			{
 				_leftEyeCamera = leftEyeAnchor.gameObject.AddComponent<Camera>();
 				_leftEyeCamera.tag = "MainCamera";
-
-#if !UNITY_5_4_OR_NEWER
-				usePerEyeCameras = false;
-				Debug.Log("Please set left eye Camera's Target Eye to Left before using.");
-#endif
 			}
 
 			if (_rightEyeCamera == null)
 			{
 				_rightEyeCamera = rightEyeAnchor.gameObject.AddComponent<Camera>();
 				_rightEyeCamera.tag = "MainCamera";
-
-#if !UNITY_5_4_OR_NEWER
-				usePerEyeCameras = false;
-				Debug.Log("Please set right eye Camera's Target Eye to Right before using.");
-#endif
 			}
 
-#if UNITY_5_4_OR_NEWER
 			_centerEyeCamera.stereoTargetEye = StereoTargetEyeMask.Both;
 			_leftEyeCamera.stereoTargetEye = StereoTargetEyeMask.Left;
 			_rightEyeCamera.stereoTargetEye = StereoTargetEyeMask.Right;
-#endif
 		}
 
 		if (_centerEyeCamera.enabled == usePerEyeCameras ||
-		    _leftEyeCamera.enabled == !usePerEyeCameras ||
-		    _rightEyeCamera.enabled == !usePerEyeCameras)
+			_leftEyeCamera.enabled == !usePerEyeCameras ||
+			_rightEyeCamera.enabled == !usePerEyeCameras)
 		{
 			_skipUpdate = true;
 		}
-		
+
 		_centerEyeCamera.enabled = !usePerEyeCameras;
 		_leftEyeCamera.enabled = usePerEyeCameras;
 		_rightEyeCamera.enabled = usePerEyeCameras;
 	}
 
-	private Transform ConfigureRootAnchor(string name)
+	protected virtual Transform ConfigureAnchor(Transform root, string name)
 	{
-		Transform root = transform.Find(name);
-
-		if (root == null)
-		{
-			root = new GameObject(name).transform;
-		}
-
-		root.parent = transform;
-		root.localScale = Vector3.one;
-		root.localPosition = Vector3.zero;
-		root.localRotation = Quaternion.identity;
-
-		return root;
-	}
-
-	private Transform ConfigureEyeAnchor(Transform root, VR.VRNode eye)
-	{
-		string eyeName = (eye == VR.VRNode.CenterEye) ? "Center" : (eye == VR.VRNode.LeftEye) ? "Left" : "Right";
-		string name = eyeName + eyeAnchorName;
-		Transform anchor = transform.Find(root.name + "/" + name);
-
-		if (anchor == null)
-		{
-			anchor = transform.Find(name);
-		}
-
-		if (anchor == null)
-		{
-			string legacyName = legacyEyeAnchorName + eye.ToString();
-			anchor = transform.Find(legacyName);
-		}
-
-		if (anchor == null)
-		{
-			anchor = new GameObject(name).transform;
-		}
-
-		anchor.name = name;
-		anchor.parent = root;
-		anchor.localScale = Vector3.one;
-		anchor.localPosition = Vector3.zero;
-		anchor.localRotation = Quaternion.identity;
-
-		return anchor;
-	}
-
-	private Transform ConfigureHandAnchor(Transform root, OVRPlugin.Node hand)
-	{
-		string handName = (hand == OVRPlugin.Node.HandLeft) ? "Left" : "Right";
-		string name = handName + handAnchorName;
-		Transform anchor = transform.Find(root.name + "/" + name);
+		Transform anchor = (root != null) ? transform.Find(root.name + "/" + name) : null;
 
 		if (anchor == null)
 		{
@@ -303,7 +255,7 @@ public class OVRCameraRig : MonoBehaviour
 		}
 
 		anchor.name = name;
-		anchor.parent = root;
+		anchor.parent = (root != null) ? root : transform;
 		anchor.localScale = Vector3.one;
 		anchor.localPosition = Vector3.zero;
 		anchor.localRotation = Quaternion.identity;
@@ -311,21 +263,30 @@ public class OVRCameraRig : MonoBehaviour
 		return anchor;
 	}
 
-	private Transform ConfigureTrackerAnchor(Transform root)
+	public virtual Matrix4x4 ComputeTrackReferenceMatrix()
 	{
-		string name = trackerAnchorName;
-		Transform anchor = transform.Find(root.name + "/" + name);
-
-		if (anchor == null)
+		if (centerEyeAnchor == null)
 		{
-			anchor = new GameObject(name).transform;
+			Debug.LogError("centerEyeAnchor is required");
+			return Matrix4x4.identity;
 		}
 
-		anchor.parent = root;
-		anchor.localScale = Vector3.one;
-		anchor.localPosition = Vector3.zero;
-		anchor.localRotation = Quaternion.identity;
+		// The ideal approach would be using UnityEngine.VR.VRNode.TrackingReference, then we would not have to depend on the OVRCameraRig. Unfortunately, it is not available in Unity 5.4.3
 
-		return anchor;
+		OVRPose headPose;
+#if UNITY_2017_2_OR_NEWER
+		headPose.position = UnityEngine.XR.InputTracking.GetLocalPosition(UnityEngine.XR.XRNode.Head);
+		headPose.orientation = UnityEngine.XR.InputTracking.GetLocalRotation(UnityEngine.XR.XRNode.Head);
+#else
+		headPose.position = UnityEngine.VR.InputTracking.GetLocalPosition(UnityEngine.VR.VRNode.Head);
+		headPose.orientation = UnityEngine.VR.InputTracking.GetLocalRotation(UnityEngine.VR.VRNode.Head);
+#endif
+
+		OVRPose invHeadPose = headPose.Inverse();
+		Matrix4x4 invHeadMatrix = Matrix4x4.TRS(invHeadPose.position, invHeadPose.orientation, Vector3.one);
+
+		Matrix4x4 ret = centerEyeAnchor.localToWorldMatrix * invHeadMatrix;
+
+		return ret;
 	}
 }

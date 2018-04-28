@@ -92,13 +92,17 @@
 		_LayerMaskParameters7("Layer Mask Parameters 7", Vector) = (0, 0, 0, 0)
 		_LayerMaskAxis7("Layer Mask Axis 7", Vector) = (0, 1, 0, 0)
 	}
-	SubShader{
-		Tags {
+
+	SubShader 
+	{
+		Tags 
+		{
 			"Queue" = "Transparent"
 			"RenderType" = "Transparent"
 		}
 
-		Pass {
+		Pass 
+		{
 			ZWrite On
 			Cull Off
 			ColorMask 0
@@ -110,38 +114,62 @@
 			#pragma target 3.0
 			#include "UnityCG.cginc"
 
-			struct v2f {
+			struct v2f 
+			{
 				float4 position : SV_POSITION;
 			};
-			v2f vert(appdata_full v) {
+
+			v2f vert(appdata_full v) 
+			{
 				// Output
 				v2f output;
 				output.position = UnityObjectToClipPos(v.vertex);
 				return output;
 			}
 
-			float4 frag(v2f input) : COLOR {
+			float4 frag(v2f input) : COLOR 
+			{
 				return 0;
 			}
-				ENDCG
-	}
 
+			ENDCG
+		}
+
+		Blend SrcAlpha OneMinusSrcAlpha
+		ZWrite Off
 		LOD 200
-		CGPROGRAM
 
-#pragma only_renderers d3d11 gles3 gles
-#pragma surface surf Lambert vertex:vert nolightmap alpha noforwardadd
-#pragma multi_compile PROJECTOR_OFF PROJECTOR_ON
-#pragma multi_compile NORMAL_MAP_OFF NORMAL_MAP_ON
-#pragma multi_compile PARALLAX_OFF PARALLAX_ON
-#pragma multi_compile ROUGHNESS_OFF ROUGHNESS_ON
-#pragma multi_compile VERTALPHA_OFF VERTALPHA_ON
-#pragma multi_compile LAYERS_1 LAYERS_2 LAYERS_3 LAYERS_4 LAYERS_5 LAYERS_6 LAYERS_7 LAYERS_8
+		Pass 
+		{
+			Name "FORWARD"
+			Tags 
+			{
+				"LightMode" = "ForwardBase"
+			}
 
-#include "Assets/OvrAvatar/Content/Materials/AvatarMaterialStateShader.cginc"
+			CGPROGRAM
+			#pragma only_renderers d3d11 gles3 gles
+			#pragma vertex vert
+			#pragma fragment frag
+			#pragma target 3.0
+			#pragma multi_compile PROJECTOR_OFF PROJECTOR_ON
+			#pragma multi_compile NORMAL_MAP_OFF NORMAL_MAP_ON
+			#pragma multi_compile PARALLAX_OFF PARALLAX_ON
+			#pragma multi_compile ROUGHNESS_OFF ROUGHNESS_ON
+			#pragma multi_compile VERTALPHA_OFF VERTALPHA_ON
+			#pragma multi_compile LAYERS_1 LAYERS_2 LAYERS_3 LAYERS_4 LAYERS_5 LAYERS_6 LAYERS_7 LAYERS_8
 
-		ENDCG
+			#include "Assets/OvrAvatar/Content/Materials/AvatarMaterialStateShader.cginc"
+
+			float4 frag(VertexOutput IN) : SV_Target
+			{
+				return ComputeSurface(IN);
+			}
+
+			ENDCG
+		}
 	}
+
 	FallBack "Diffuse"
 	CustomEditor "AvatarMaterialEditor"
 }

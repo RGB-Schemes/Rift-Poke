@@ -32,15 +32,16 @@ public class AvatarLayerPropertyDrawer : PropertyDrawer
 }
 #endif
 
+[System.Serializable]
 public class PacketRecordSettings
 {
-    public bool RecordingFrames = false;
-    public float UpdateRate = 1.0f / 5.0f;  // Lower rate = bigger packets. Try to optimize against fidelity vs Network Overhead.
-    public float AccumulatedTime = 0.0f;
+    internal bool RecordingFrames = false;
+    public float UpdateRate = 1f / 30f; // 30 hz update of packets
+    internal float AccumulatedTime;
 };
 
-public class OvrAvatar : MonoBehaviour {
-
+public class OvrAvatar : MonoBehaviour
+{
     public OvrAvatarDriver Driver;
     public OvrAvatarBase Base;
     public OvrAvatarBody Body;
@@ -49,6 +50,8 @@ public class OvrAvatar : MonoBehaviour {
     public OvrAvatarHand HandLeft;
     public OvrAvatarHand HandRight;
     public bool RecordPackets;
+    public bool UseSDKPackets = true;
+
     public bool StartWithControllers;
     public AvatarLayer FirstPersonLayer;
     public AvatarLayer ThirdPersonLayer;
@@ -58,6 +61,7 @@ public class OvrAvatar : MonoBehaviour {
     public Shader SurfaceShader;
     public Shader SurfaceShaderSelfOccluding;
     public Shader SurfaceShaderPBS;
+    public Shader SurfaceShaderPBSV2;
 
     int renderPartCount = 0;
     bool showLeftController;
@@ -67,7 +71,7 @@ public class OvrAvatar : MonoBehaviour {
     public UInt64 oculusUserID;
     public bool CombineMeshes = false;
 
-    private IntPtr sdkAvatar = IntPtr.Zero;
+    public IntPtr sdkAvatar = IntPtr.Zero;
     private HashSet<UInt64> assetLoadingIds = new HashSet<UInt64>();
     private Dictionary<string, OvrAvatarComponent> trackedComponents =
         new Dictionary<string, OvrAvatarComponent>();
@@ -78,10 +82,10 @@ public class OvrAvatar : MonoBehaviour {
     public Transform LeftHandCustomPose;
     public Transform RightHandCustomPose;
     Transform cachedLeftHandCustomPose;
-    Transform[] cachedLeftHandJoints;
+    Transform[] cachedCustomLeftHandJoints;
     ovrAvatarTransform[] cachedLeftHandTransforms;
     Transform cachedRightHandCustomPose;
-    Transform[] cachedRightHandJoints;
+    Transform[] cachedCustomRightHandJoints;
     ovrAvatarTransform[] cachedRightHandTransforms;
 
     public class PacketEventArgs : EventArgs
@@ -93,11 +97,50 @@ public class OvrAvatar : MonoBehaviour {
         }
     }
 
-    PacketRecordSettings PacketSettings = new PacketRecordSettings();
+    public PacketRecordSettings PacketSettings = new PacketRecordSettings();
+
+    OvrAvatarPacket CurrentUnityPacket;
+
+    public enum HandType
+    {
+        Right,
+        Left,
+
+        Max
+    };
+
+    public enum HandJoint
+    {
+        HandBase,
+        IndexBase,
+        IndexTip,
+        ThumbBase,
+        ThumbTip,
+       
+        Max,
+    }
+
+    private static string[,] HandJoints = new string[(int)HandType.Max, (int)HandJoint.Max]
+    {
+        {
+            "hands:r_hand_world",
+            "hands:r_hand_world/hands:b_r_hand/hands:b_r_index1",
+            "hands:r_hand_world/hands:b_r_hand/hands:b_r_index1/hands:b_r_index2/hands:b_r_index3/hands:b_r_index_ignore",
+            "hands:r_hand_world/hands:b_r_hand/hands:b_r_thumb1/hands:b_r_thumb2",
+            "hands:r_hand_world/hands:b_r_hand/hands:b_r_thumb1/hands:b_r_thumb2/hands:b_r_thumb3/hands:b_r_thumb_ignore"
+        },
+        {
+            "hands:l_hand_world",
+            "hands:l_hand_world/hands:b_l_hand/hands:b_l_index1",
+            "hands:l_hand_world/hands:b_l_hand/hands:b_l_index1/hands:b_l_index2/hands:b_l_index3/hands:b_l_index_ignore",
+            "hands:l_hand_world/hands:b_l_hand/hands:b_l_thumb1/hands:b_l_thumb2",
+            "hands:l_hand_world/hands:b_l_hand/hands:b_l_thumb1/hands:b_l_thumb2/hands:b_l_thumb3/hands:b_l_thumb_ignore"
+        }
+    };
 
     void OnDestroy()
     {
-        if( sdkAvatar != IntPtr.Zero)
+        if (sdkAvatar != IntPtr.Zero)
         {
             CAPI.ovrAvatar_Destroy(sdkAvatar);
         }
@@ -105,42 +148,19 @@ public class OvrAvatar : MonoBehaviour {
 
     public EventHandler<PacketEventArgs> PacketRecorded;
 
-    public void AssetLoadedCallback(OvrAvatarAsset asset) {
+    public void AssetLoadedCallback(OvrAvatarAsset asset)
+    {
         assetLoadingIds.Remove(asset.assetID);
     }
 
-    private void AddAvatarComponent(GameObject componentObject, ovrAvatarComponent component) {
+    private void AddAvatarComponent(GameObject componentObject, ovrAvatarComponent component)
+    {
         OvrAvatarComponent ovrComponent = componentObject.AddComponent<OvrAvatarComponent>();
         trackedComponents.Add(component.name, ovrComponent);
 
-        bool combine_meshes = CombineMeshes && componentObject.name == "body";
-        for (UInt32 renderPartIndex = 0; renderPartIndex < component.renderPartCount; renderPartIndex++)
-        {
-            GameObject renderPartObject = new GameObject();
-            renderPartObject.name = GetRenderPartName(component, renderPartIndex);
-            renderPartObject.transform.SetParent(componentObject.transform);
-            IntPtr renderPart = GetRenderPart(component, renderPartIndex);
-            ovrAvatarRenderPartType type = CAPI.ovrAvatarRenderPart_GetType(renderPart);
-            OvrAvatarRenderComponent ovrRenderPart;
-            switch (type)
-            {
-                case ovrAvatarRenderPartType.SkinnedMeshRender:
-                    ovrRenderPart = AddSkinnedMeshRenderComponent(renderPartObject, CAPI.ovrAvatarRenderPart_GetSkinnedMeshRender(renderPart));
-                    break;
-                case ovrAvatarRenderPartType.SkinnedMeshRenderPBS:
-                    ovrRenderPart = AddSkinnedMeshRenderPBSComponent(renderPartObject, CAPI.ovrAvatarRenderPart_GetSkinnedMeshRenderPBS(renderPart));
-                    break;
-                case ovrAvatarRenderPartType.ProjectorRender:
-                    combine_meshes = false;
-                    ovrRenderPart = AddProjectorRenderComponent(renderPartObject, CAPI.ovrAvatarRenderPart_GetProjectorRender(renderPart));
-                    break;
-                default:
-                    throw new NotImplementedException(
-                        string.Format("Unsupported render part type: {0}",
-                                      type.ToString()));
-            }
-            ovrComponent.RenderParts.Add(ovrRenderPart);
-        }
+        bool combine_meshes = AddRenderParts(ovrComponent, component, componentObject.transform) 
+            && CombineMeshes 
+            && componentObject.name == "body";
 
         if (combine_meshes)
         {
@@ -159,6 +179,13 @@ public class OvrAvatar : MonoBehaviour {
     {
         OvrAvatarSkinnedMeshRenderPBSComponent skinnedMeshRenderer = gameObject.AddComponent<OvrAvatarSkinnedMeshRenderPBSComponent>();
         skinnedMeshRenderer.Initialize(skinnedMeshRenderPBS, SurfaceShaderPBS, ThirdPersonLayer.layerIndex, FirstPersonLayer.layerIndex, renderPartCount++);
+        return skinnedMeshRenderer;
+    }
+
+    private OvrAvatarSkinnedMeshPBSV2RenderComponent AddSkinnedMeshRenderPBSV2Component(GameObject gameObject, ovrAvatarRenderPart_SkinnedMeshRenderPBS_V2 skinnedMeshRenderPBSV2)
+    {
+        OvrAvatarSkinnedMeshPBSV2RenderComponent skinnedMeshRenderer = gameObject.AddComponent<OvrAvatarSkinnedMeshPBSV2RenderComponent>();
+        skinnedMeshRenderer.Initialize(skinnedMeshRenderPBSV2, SurfaceShaderPBSV2, ThirdPersonLayer.layerIndex, FirstPersonLayer.layerIndex, renderPartCount++);
         return skinnedMeshRenderer;
     }
 
@@ -216,14 +243,16 @@ public class OvrAvatar : MonoBehaviour {
 
     public static ovrAvatarTransform CreateOvrAvatarTransform(Vector3 position, Quaternion orientation)
     {
-        return new ovrAvatarTransform {
+        return new ovrAvatarTransform
+        {
             position = new Vector3(position.x, position.y, -position.z),
             orientation = new Quaternion(-orientation.x, -orientation.y, orientation.z, orientation.w),
             scale = Vector3.one
         };
     }
 
-    private void RemoveAvatarComponent(string name) {
+    private void RemoveAvatarComponent(string name)
+    {
         OvrAvatarComponent componentObject;
         trackedComponents.TryGetValue(name, out componentObject);
         Destroy(componentObject.gameObject);
@@ -235,7 +264,8 @@ public class OvrAvatar : MonoBehaviour {
         //Iterate through all the render components
         UInt32 componentCount = CAPI.ovrAvatarComponent_Count(sdkAvatar);
         HashSet<string> componentsThisRun = new HashSet<string>();
-        for (UInt32 i = 0; i < componentCount; i++) {
+        for (UInt32 i = 0; i < componentCount; i++)
+        {
             IntPtr ptr = CAPI.ovrAvatarComponent_Get_Native(sdkAvatar, i);
             ovrAvatarComponent component = (ovrAvatarComponent)Marshal.PtrToStructure(ptr, typeof(ovrAvatarComponent));
             componentsThisRun.Add(component.name);
@@ -312,7 +342,7 @@ public class OvrAvatar : MonoBehaviour {
                     }
                 }
 
-                    // If this is an unknown type, just create an object for the rendering
+                // If this is an unknown type, just create an object for the rendering
                 if (componentObject == null && specificType == null)
                 {
                     componentObject = new GameObject();
@@ -321,7 +351,7 @@ public class OvrAvatar : MonoBehaviour {
                 }
                 if (componentObject != null)
                 {
-                    AddAvatarComponent(componentObject, component); 
+                    AddAvatarComponent(componentObject, component);
                 }
             }
             UpdateAvatarComponent(component);
@@ -339,14 +369,14 @@ public class OvrAvatar : MonoBehaviour {
     void UpdateCustomPoses()
     {
         // Check to see if the pose roots changed
-        if (UpdatePoseRoot(LeftHandCustomPose, ref cachedLeftHandCustomPose, ref cachedLeftHandJoints, ref cachedLeftHandTransforms))
+        if (UpdatePoseRoot(LeftHandCustomPose, ref cachedLeftHandCustomPose, ref cachedCustomLeftHandJoints, ref cachedLeftHandTransforms))
         {
             if (cachedLeftHandCustomPose == null && sdkAvatar != IntPtr.Zero)
             {
                 CAPI.ovrAvatar_SetLeftHandGesture(sdkAvatar, ovrAvatarHandGesture.Default);
             }
         }
-        if (UpdatePoseRoot(RightHandCustomPose, ref cachedRightHandCustomPose, ref cachedRightHandJoints, ref cachedRightHandTransforms))
+        if (UpdatePoseRoot(RightHandCustomPose, ref cachedRightHandCustomPose, ref cachedCustomRightHandJoints, ref cachedRightHandTransforms))
         {
             if (cachedRightHandCustomPose == null && sdkAvatar != IntPtr.Zero)
             {
@@ -357,11 +387,11 @@ public class OvrAvatar : MonoBehaviour {
         // Check to see if the custom gestures need to be updated
         if (sdkAvatar != IntPtr.Zero)
         {
-            if (cachedLeftHandCustomPose != null && UpdateTransforms(cachedLeftHandJoints, cachedLeftHandTransforms))
+            if (cachedLeftHandCustomPose != null && UpdateTransforms(cachedCustomLeftHandJoints, cachedLeftHandTransforms))
             {
                 CAPI.ovrAvatar_SetLeftHandCustomGesture(sdkAvatar, (uint)cachedLeftHandTransforms.Length, cachedLeftHandTransforms);
             }
-            if (cachedRightHandCustomPose != null && UpdateTransforms(cachedRightHandJoints, cachedRightHandTransforms))
+            if (cachedRightHandCustomPose != null && UpdateTransforms(cachedCustomRightHandJoints, cachedRightHandTransforms))
             {
                 CAPI.ovrAvatar_SetRightHandCustomGesture(sdkAvatar, (uint)cachedRightHandTransforms.Length, cachedRightHandTransforms);
             }
@@ -441,11 +471,14 @@ public class OvrAvatar : MonoBehaviour {
         }
     }
 
-    void Start() {
+    void Start()
+    {
         ShowLeftController(StartWithControllers);
         ShowRightController(StartWithControllers);
         OvrAvatarSDKManager.Instance.RequestAvatarSpecification(
             oculusUserID, this.AvatarSpecificationCallback);
+
+        Driver.Mode = UseSDKPackets ? OvrAvatarDriver.PacketMode.SDK : OvrAvatarDriver.PacketMode.Unity;
     }
 
     void Update()
@@ -532,6 +565,68 @@ public class OvrAvatar : MonoBehaviour {
 
     void RecordFrame()
     {
+        if(UseSDKPackets)
+        {
+            RecordSDKFrame();
+        }
+        else
+        {
+            RecordUnityFrame();
+        }
+    }
+
+    // Meant to be used mutually exclusively with RecordSDKFrame to give user more options to optimize or tweak packet data
+    private void RecordUnityFrame()
+    {
+        var deltaSeconds = Time.deltaTime;
+        var frame = Driver.GetCurrentPose();
+        // If this is our first packet, store the pose as the initial frame
+        if (CurrentUnityPacket == null)
+        {
+            CurrentUnityPacket = new OvrAvatarPacket(frame);
+            deltaSeconds = 0;
+        }
+
+        float recordedSeconds = 0;
+        while (recordedSeconds < deltaSeconds)
+        {
+            float remainingSeconds = deltaSeconds - recordedSeconds;
+            float remainingPacketSeconds = PacketSettings.UpdateRate - CurrentUnityPacket.Duration;
+
+            // If we're not going to fill the packet, just add the frame
+            if (remainingSeconds < remainingPacketSeconds)
+            {
+                CurrentUnityPacket.AddFrame(frame, remainingSeconds);
+                recordedSeconds += remainingSeconds;
+            }
+
+            // If we're going to fill the packet, interpolate the pose, send the packet,
+            // and open a new one
+            else
+            {
+                // Interpolate between the packet's last frame and our target pose
+                // to compute a pose at the end of the packet time.
+                OvrAvatarDriver.PoseFrame a = CurrentUnityPacket.FinalFrame;
+                OvrAvatarDriver.PoseFrame b = frame;
+                float t = remainingPacketSeconds / remainingSeconds;
+                OvrAvatarDriver.PoseFrame intermediatePose = OvrAvatarDriver.PoseFrame.Interpolate(a, b, t);
+                CurrentUnityPacket.AddFrame(intermediatePose, remainingPacketSeconds);
+                recordedSeconds += remainingPacketSeconds;
+
+                // Broadcast the recorded packet
+                if (PacketRecorded != null)
+                {
+                    PacketRecorded(this, new PacketEventArgs(CurrentUnityPacket));
+                }
+
+                // Open a new packet
+                CurrentUnityPacket = new OvrAvatarPacket(intermediatePose);
+            }
+        }
+    }
+
+    private void RecordSDKFrame()
+    {
         if (sdkAvatar == IntPtr.Zero)
         {
             return;
@@ -559,5 +654,121 @@ public class OvrAvatar : MonoBehaviour {
 
             CAPI.ovrAvatarPacket_Free(packet);
         }
+    }
+
+    private bool AddRenderParts(OvrAvatarComponent ovrComponent, ovrAvatarComponent component, Transform parent)
+    {
+        bool combineMeshes = true;
+
+        for (UInt32 renderPartIndex = 0; renderPartIndex < component.renderPartCount; renderPartIndex++)
+        {
+            GameObject renderPartObject = new GameObject();
+            renderPartObject.name = GetRenderPartName(component, renderPartIndex);
+            renderPartObject.transform.SetParent(parent);
+            IntPtr renderPart = GetRenderPart(component, renderPartIndex);
+            ovrAvatarRenderPartType type = CAPI.ovrAvatarRenderPart_GetType(renderPart);
+            OvrAvatarRenderComponent ovrRenderPart;
+            switch (type)
+            {
+                case ovrAvatarRenderPartType.SkinnedMeshRender:
+                    ovrRenderPart = AddSkinnedMeshRenderComponent(renderPartObject, CAPI.ovrAvatarRenderPart_GetSkinnedMeshRender(renderPart));
+                    break;
+                case ovrAvatarRenderPartType.SkinnedMeshRenderPBS:
+                    ovrRenderPart = AddSkinnedMeshRenderPBSComponent(renderPartObject, CAPI.ovrAvatarRenderPart_GetSkinnedMeshRenderPBS(renderPart));
+                    break;
+                case ovrAvatarRenderPartType.ProjectorRender:
+                    combineMeshes = false;
+                    ovrRenderPart = AddProjectorRenderComponent(renderPartObject, CAPI.ovrAvatarRenderPart_GetProjectorRender(renderPart));
+                    break;
+                case ovrAvatarRenderPartType.SkinnedMeshRenderPBS_V2:
+                    combineMeshes = false;
+                    ovrRenderPart = AddSkinnedMeshRenderPBSV2Component(renderPartObject, CAPI.ovrAvatarRenderPart_GetSkinnedMeshRenderPBSV2(renderPart));
+                    break;
+                default:
+                    throw new NotImplementedException(string.Format("Unsupported render part type: {0}", type.ToString()));
+            }
+
+            ovrComponent.RenderParts.Add(ovrRenderPart);
+        }
+
+        return combineMeshes;
+    }
+
+    public void RefreshBodyParts()
+    {
+        OvrAvatarComponent component;
+        if (trackedComponents.TryGetValue("body", out component) && Body != null)
+        {
+            foreach (var part in component.RenderParts)
+            {
+                Destroy(part.gameObject);
+            }
+
+            component.RenderParts.Clear();
+
+            ovrAvatarBodyComponent? sdkBodyComponent = CAPI.ovrAvatarPose_GetBodyComponent(sdkAvatar);
+            if (sdkBodyComponent != null)
+            {
+                ovrAvatarComponent sdKComponent = (ovrAvatarComponent)Marshal.PtrToStructure(sdkBodyComponent.Value.renderComponent, typeof(ovrAvatarComponent));
+                AddRenderParts(component, sdKComponent, Body.gameObject.transform);
+            }
+            else
+            {
+                throw new Exception("Destroyed the body component, but didn't find a new one in the SDK");
+            }
+        }
+    }
+
+    public ovrAvatarBodyComponent? GetBodyComponent()
+    {
+        return CAPI.ovrAvatarPose_GetBodyComponent(sdkAvatar);
+    }
+
+
+    public Transform GetHandTransform(HandType hand, HandJoint joint)
+    {
+        if (hand >= HandType.Max || joint >= HandJoint.Max)
+        {
+            return null;
+        }
+
+        var HandObject = hand == HandType.Left ? HandLeft : HandRight;
+
+        if (HandObject != null)
+        {
+            var AvatarComponent = HandObject.GetComponent<OvrAvatarComponent>();
+            if (AvatarComponent != null && AvatarComponent.RenderParts.Count > 0)
+            {
+                var SkinnedMesh = AvatarComponent.RenderParts[0];
+                return SkinnedMesh.transform.Find(HandJoints[(int)hand, (int)joint]);
+            }
+        }
+
+        return null;
+    }
+
+    public void GetPointingDirection(HandType hand, ref Vector3 forward, ref Vector3 up)
+    {
+        Transform handBase = GetHandTransform(hand, HandJoint.HandBase);
+
+        if (handBase != null)
+        {
+            forward = handBase.forward;
+            up = handBase.up;
+        }
+    }
+
+    public Transform GetMouthTransform()
+    {
+        OvrAvatarComponent component;
+        if (trackedComponents.TryGetValue("voice", out component))
+        {
+            if (component.RenderParts.Count > 0)
+            {
+                return component.RenderParts[0].transform;
+            }
+        }
+
+        return null;
     }
 }

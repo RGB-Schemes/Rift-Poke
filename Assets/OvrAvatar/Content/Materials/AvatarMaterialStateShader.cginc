@@ -56,15 +56,18 @@ DECLARE_LAYER_UNIFORMS(5)
 DECLARE_LAYER_UNIFORMS(6)
 DECLARE_LAYER_UNIFORMS(7)
 
-struct Input {
-	float2 texcoord;
-	float3 viewDir;
-	float3 worldPos;
-	float3 worldNormal;
+struct VertexOutput 
+{
+	float4 pos : SV_POSITION;
+	float2 texcoord : TEXCOORD0;
+	float3 worldPos : TEXCOORD1;
+	float3 worldNormal : TEXCOORD2;
+	float3 viewDir : TEXCOORD3;
 	float4 vertColor : COLOR;
+
 #if NORMAL_MAP_ON || PARALLAX_ON
-	float3 worldTangent;
-	float3 worldBitangent;
+	float3 worldTangent : TANGENT;
+	float3 worldBitangent : TEXCOORD5;
 #endif
 };
 
@@ -86,16 +89,24 @@ sampler2D _RoughnessMap;
 float4 _RoughnessMap_ST;
 float4x4 _ProjectorWorldToLocal;
 
-void vert(inout appdata_full v, out Input o) {
-	UNITY_INITIALIZE_OUTPUT(Input, o);
+VertexOutput vert(appdata_full v)
+{
+	VertexOutput o;
+	UNITY_INITIALIZE_OUTPUT(VertexOutput, o);
+
 	o.texcoord = v.texcoord.xy;
+	o.worldPos = mul(unity_ObjectToWorld, v.vertex);
 	o.vertColor = v.color;
+	o.viewDir = normalize(_WorldSpaceCameraPos.xyz - o.worldPos);
+	o.worldNormal = normalize(mul(unity_ObjectToWorld, float4(v.normal, 0.0)).xyz);
 
 #if NORMAL_MAP_ON || PARALLAX_ON
-	o.worldNormal = normalize(mul(unity_ObjectToWorld, float4(v.normal, 0.0)).xyz);
 	o.worldTangent = normalize(mul(unity_ObjectToWorld, float4(v.tangent.xyz, 0.0)).xyz);
 	o.worldBitangent = normalize(cross(o.worldNormal, o.worldTangent) * v.tangent.w);
 #endif
+
+	o.pos = UnityObjectToClipPos(v.vertex);
+	return o;
 }
 
 #ifndef NORMAL_MAP_ON
@@ -105,7 +116,7 @@ void vert(inout appdata_full v, out Input o) {
 #endif
 
 float3 ComputeColor(
-	Input IN,
+	VertexOutput IN,
 	float2 uv,
 #if PARALLAX_ON || NORMAL_MAP_ON
 	float3x3 tangentTransform,
@@ -159,7 +170,7 @@ float3 ComputeColor(
 }
 
 float ComputeMask(
-	Input IN,
+	VertexOutput IN,
 #ifdef NORMAL_MAP_ON
 	float3x3 tangentTransform,
 	float3 surfaceNormal,
@@ -226,7 +237,8 @@ float3 ComputeBlend(float3 source, float3 blend, float mask, int blendMode) {
 	}
 }
 
-void surf(Input IN, inout SurfaceOutput o) {
+float4 ComputeSurface(VertexOutput IN) 
+{
 #if PROJECTOR_ON
 	float3 projectorPos = mul(_ProjectorWorldToLocal, float4(IN.worldPos, 1.0)).xyz;
 	if (abs(projectorPos.x) > 1.0 || abs(projectorPos.y) > 1.0 || abs(projectorPos.z) > 1.0)
@@ -294,11 +306,13 @@ void surf(Input IN, inout SurfaceOutput o) {
 	float alpha0weight = max(0.0, 1.0 - scaledValue);
 	float alpha2weight = max(0.0, scaledValue - 1.0);
 	float alpha1weight = 1.0 - alpha0weight - alpha2weight;
-	o.Alpha = _Alpha * c.a * (tex2D(_AlphaMask, TRANSFORM_TEX(uv, _AlphaMask)).r * alpha1weight + tex2D(_AlphaMask2, TRANSFORM_TEX(uv, _AlphaMask2)).r * alpha2weight + alpha0weight) * ComputeMask(MASK_INPUTS, _BaseMaskType, _BaseMaskParameters, _BaseMaskAxis);
+	c.a = _Alpha * c.a * (tex2D(_AlphaMask, TRANSFORM_TEX(uv, _AlphaMask)).r * alpha1weight + tex2D(_AlphaMask2, TRANSFORM_TEX(uv, _AlphaMask2)).r * alpha2weight + alpha0weight) * ComputeMask(MASK_INPUTS, _BaseMaskType, _BaseMaskParameters, _BaseMaskAxis);
 #else
-	o.Alpha = _Alpha * c.a * tex2D(_AlphaMask, TRANSFORM_TEX(uv, _AlphaMask)).r * IN.vertColor.a * ComputeMask(MASK_INPUTS, _BaseMaskType, _BaseMaskParameters, _BaseMaskAxis);
+	c.a = _Alpha * c.a * tex2D(_AlphaMask, TRANSFORM_TEX(uv, _AlphaMask)).r * IN.vertColor.a * ComputeMask(MASK_INPUTS, _BaseMaskType, _BaseMaskParameters, _BaseMaskAxis);
 #endif
-	o.Emission = lerp(c.rgb, c.rgb * _DarkMultiplier, IN.vertColor.r);
+	c.rgb = lerp(c.rgb, c.rgb * _DarkMultiplier, IN.vertColor.r);
+
+	return c;
 }
 
 #endif

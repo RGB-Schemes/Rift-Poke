@@ -1,5 +1,7 @@
 // This file was @generated with LibOVRPlatform/codegen/main. Do not modify it!
 
+#pragma warning disable 0618
+
 namespace Oculus.Platform.Models
 {
   using System;
@@ -11,13 +13,24 @@ namespace Oculus.Platform.Models
   public class MatchmakingEnqueuedUser
   {
     public readonly Dictionary<string, string> CustomData;
+    // May be null. Check before using.
+    public readonly User UserOptional;
+    [Obsolete("Deprecated in favor of UserOptional")]
     public readonly User User;
 
 
     public MatchmakingEnqueuedUser(IntPtr o)
     {
       CustomData = CAPI.DataStoreFromNative(CAPI.ovr_MatchmakingEnqueuedUser_GetCustomData(o));
-      User = new User(CAPI.ovr_MatchmakingEnqueuedUser_GetUser(o));
+      {
+        var pointer = CAPI.ovr_MatchmakingEnqueuedUser_GetUser(o);
+        User = new User(pointer);
+        if (pointer == IntPtr.Zero) {
+          UserOptional = null;
+        } else {
+          UserOptional = User;
+        }
+      }
     }
   }
 
